@@ -1,0 +1,208 @@
+
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  name          String
+  role          UserRole @default(requester)
+  assignedGates String[]
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  requests      Request[]
+  notifications Notification[]
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Request {
+  id                 String   @id @default(cuid())
+  approvalNumber     String?
+  requestedById      String
+  requestedByEmail   String
+  destination        String
+  gate               String
+  fromDate           DateTime
+  toDate             DateTime
+  purpose            String
+  status             Status   @default(submitted)
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  approver1Comment   String?
+  approver1Date      DateTime?
+  approver1By        String?
+  approver2Comment   String?
+  approver2Date      DateTime?
+  approver2By        String?
+  
+  requestedBy User   @relation(fields: [requestedById], references: [id])
+  guests      Guest[]
+  surveys     Survey[]
+
+  @@map("requests")
+}
+
+model Guest {
+  id                      String   @id @default(cuid())
+  name                    String
+  organization            String
+  email                   String?
+  phone                   String?
+  laptop                  Boolean  @default(false)
+  mobile                  Boolean  @default(false)
+  flash                   Boolean  @default(false)
+  otherDevice             Boolean  @default(false)
+  otherDeviceDescription  String?
+  idPhotoUrl              String?
+  checkInTime             DateTime?
+  checkOutTime            DateTime?
+  approver1Status         String?
+  approver2Status         String?
+  approver1Comment        String?
+  approver2Comment        String?
+
+  requestId String
+  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  Survey    Survey?
+
+  @@map("guests")
+}
+
+model Survey {
+  id          String   @id @default(cuid())
+  requestId   String
+  guestId     String   @unique
+  rating      Int
+  comment     String
+  submittedAt DateTime @default(now())
+
+  request Request @relation(fields: [requestId], references: [id])
+  guest   Guest   @relation(fields: [guestId], references: [id])
+
+  @@map("surveys")
+}
+
+model Settings {
+  id                      Int      @id @default(1)
+  approvalSteps           Int      @default(2)
+  emailNotifications      Boolean  @default(true)
+  smsNotifications        Boolean  @default(true)
+  checkInOutNotifications Boolean  @default(true)
+  gates                   String[]
+  primaryColor            String?
+  accentColor             String?
+  smtpHost                String?
+  smtpPort                Int?
+  smtpUser                String?
+  smtpPassword            String?
+  smsGatewayUrl           String?
+  smsApiKey               String?
+  emailGatewayUrl         String?
+  emailApiKey             String?
+
+  @@map("settings")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  message   String
+  requestId String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+
+  dispatches NotificationDispatch[]
+
+  @@map("notifications")
+}
+
+model NotificationDispatch {
+  id             String                   @id @default(cuid())
+  notificationId String
+  channel        NotificationChannel
+  recipient      String
+  subject        String?
+  body           String
+  status         NotificationDispatchStatus @default(queued)
+  provider       String?
+  attempts       Int                      @default(0)
+  lastError      String?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@index([notificationId, status])
+  @@map("notification_dispatches")
+}
+
+model BlacklistEntry {
+  id           String    @id @default(cuid())
+  name         String
+  organization String?
+  email        String?
+  phone        String?
+  reason       String?
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  @@map("blacklist_entries")
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  entity    String
+  entityId  String
+  details   Json
+  timestamp DateTime @default(now())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
+}
+
+enum Status {
+  draft
+  submitted
+  approver1_pending
+  approver1_approved
+  approver1_rejected
+  approver2_pending
+  approver2_approved
+  approver2_rejected
+}
+
+enum UserRole {
+  admin
+  requester
+  approver1
+  approver2
+  reception
+}
+
+enum NotificationChannel {
+  email
+  sms
+}
+
+enum NotificationDispatchStatus {
+  queued
+  sent
+  failed
+}
