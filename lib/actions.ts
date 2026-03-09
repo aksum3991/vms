@@ -3,8 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { encrypt } from "./crypto";
 import db from "./db";
+import { getServerSession } from "./auth-server";
 import { getEmailProviderFromEnvOrSettings } from "./notifications/providers/email";
 import { getSmsProviderFromEnvOrSettings } from "./notifications/providers/sms";
+import { tenantDb } from "./db-tenant";
+// requireAnySession removed from here as it's added above
 import type {
   Request,
   Survey,
@@ -21,7 +24,21 @@ import { getNotificationConfig } from "./notifications/config";
 import {
   createUserNotificationAndDispatchRecords,
   enqueueNotificationProcessing,
+  emitUserRegistrationNow,
 } from "./notifications/dispatcher";
+import {
+  kcEnsureUser,
+  kcSetEnabled,
+  kcSetPassword,
+  kcSetSingleRealmRole,
+  type VmsRole,
+} from "./keycloak-admin";
+import {
+  updateRequestSchedule as updateScheduleImpl,
+  withdrawRequest as withdrawRequestImpl,
+} from "./request-actions";
+import { requireTenantSession, requireAnySession } from "./tenant-context";
+import { mapRowToUser } from "./mappers";
 
 // Mapper functions (internal to this module)
 function mapRowToRequest(row: any, guests: Guest[]): Request {
@@ -35,8 +52,8 @@ function mapRowToRequest(row: any, guests: Guest[]): Request {
     requestedByEmail: row.requestedByEmail,
     destination: row.destination,
     gate: row.gate,
-    fromDate: new Date(row.fromDate).toISOString().split("T")[0],
-    toDate: new Date(row.toDate).toISOString().split("T")[0],
+    fromDate: new Date(row.fromDate).toISOString(),
+    toDate: new Date(row.toDate).toISOString(),
     purpose: row.purpose,
     guests,
     status,
@@ -52,6 +69,11 @@ function mapRowToRequest(row: any, guests: Guest[]): Request {
       ? new Date(row.approver2Date).toISOString()
       : undefined,
     approver2By: row.approver2By,
+    withdrawnAt: row.withdrawnAt
+      ? new Date(row.withdrawnAt).toISOString()
+      : undefined,
+    withdrawnById: row.withdrawnById,
+    withdrawalReason: row.withdrawalReason,
   };
 }
 
@@ -116,22 +138,9 @@ function mapRowToSurvey(row: any): Survey {
   };
 }
 
-function mapRowToUser(row: any): User {
-  return {
-    id: row.id,
-    email: row.email,
-    password: row.password,
-    name: row.name,
-    role: row.role,
-    assignedGates: row.assignedGates,
-    active: row.active ?? true,
-    createdAt: new Date(row.createdAt).toISOString(),
-  };
-}
-
 function mapRowToSettings(row: any): Settings {
   return {
-    approvalSteps: row.approvalSteps,
+    approvalSteps: (row.approvalSteps as 1 | 2) || 1,
     emailNotifications: row.emailNotifications,
     smsNotifications: row.smsNotifications,
     checkInOutNotifications: row.checkInOutNotifications,
@@ -161,25 +170,6 @@ function mapRowToNotification(row: any): Notification {
   };
 }
 
-function toApprover1Enum(status?: string | null): PrismaStatus | null {
-  if (!status) return null;
-  if (status === "approved") return "approver1_approved" as PrismaStatus;
-  if (status === "blacklisted")
-    return "approver1_blacklisted" as unknown as PrismaStatus;
-  if (status === "rejected") return "approver1_rejected" as PrismaStatus;
-  if (status === "pending") return "approver1_pending" as PrismaStatus;
-  return null;
-}
-function toApprover2Enum(status?: string | null): PrismaStatus | null {
-  if (!status) return null;
-  if (status === "approved") return "approver2_approved" as PrismaStatus;
-  if (status === "blacklisted")
-    return "approver2_blacklisted" as unknown as PrismaStatus;
-  if (status === "rejected") return "approver2_rejected" as PrismaStatus;
-  if (status === "pending") return "approver2_pending" as PrismaStatus;
-  return null;
-}
-
 // Actions
 async function createAuditLog(
   userId: string,
@@ -207,13 +197,16 @@ async function createAuditLog(
   }
 }
 
-export async function getRequests(): Promise<Request[]> {
+export async function getRequests(expectedSlug?: string): Promise<Request[]> {
   try {
-    const requestsFromDb = await db.request.findMany({
+    const { tenantId } = await requireTenantSession(expectedSlug);
+    const tdb = tenantDb(tenantId);
+    
+    const requestsFromDb = await (tdb.request as any).findMany({
       include: { guests: true, requestedBy: true },
       orderBy: { createdAt: "desc" },
     });
-    return requestsFromDb.map((req) =>
+    return requestsFromDb.map((req: any) =>
       mapRowToRequest(req, req.guests.map(mapRowToGuest)),
     );
   } catch (error) {
@@ -231,55 +224,74 @@ export async function saveRequest(
   },
 ): Promise<void> {
   try {
+    const { tenantId, session } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    // Default requester to current session (for new requests)
+    let requestedById = session.userId;
+    let requestedByEmail = session.email;
+
     const { guests, ...requestData } = request;
     const isUpdate = !!request.id;
 
-    // Ensure there is a user id to associate with the request. If `requestedById` was provided, use it.
-    // Otherwise, try to find a user by email and create a lightweight requester if none exists.
-    let requestedById = requestData.requestedById || undefined;
-    if (!requestedById && requestData.requestedByEmail) {
-      const existingUser = await db.user.findUnique({
-        where: { email: requestData.requestedByEmail },
+    // Step 2: For updates, verify ownership
+    if (isUpdate) {
+      // Use tdb.request.findFirst to ensure tenant isolation
+      const existing = await (tdb.request as any).findFirst({
+        where: { id: request.id },
       });
-      if (existingUser) {
-        requestedById = existingUser.id;
-      } else {
-        // `assignedGates` is required by the schema, provide an empty array
-        const createdUser = await db.user.create({
-          data: {
-            email: requestData.requestedByEmail,
-            name: requestData.requestedBy || requestData.requestedByEmail,
-            password: Math.random().toString(36).slice(2),
-            role: "requester",
-            assignedGates: [],
-          },
-        });
-        requestedById = createdUser.id;
+
+      if (!existing) {
+        throw new Error("Request not found in this organization");
+      }
+
+      // Preserve original requester for updates
+      requestedById = existing.requestedById;
+      requestedByEmail = existing.requestedByEmail;
+
+      // Authorization Check
+      const isOwner = existing.requestedById === session.userId;
+      const isAdmin = session.role === "admin";
+      const isApprover1 = session.role === "approver1";
+      const isApprover2 = session.role === "approver2";
+
+      if (!isOwner && !isAdmin) {
+        // Allow approvers to update requests in their queue
+        let isAllowed = false;
+
+        // Approver 1 can edit if Submitted, Pending A1, or Rejection correction
+        // DB uses UNDERSCORES for status enum
+        if (
+          isApprover1 &&
+          (existing.status === "submitted" ||
+            existing.status === "approver1_pending" ||
+            existing.status === "approver1_rejected")
+        ) {
+          isAllowed = true;
+        }
+
+        // Approver 2 can edit if Pending A2, or incoming from A1
+        if (
+          isApprover2 &&
+          (existing.status === "approver2_pending" ||
+            existing.status === "approver1_approved" ||
+            existing.status === "approver2_rejected")
+        ) {
+          isAllowed = true;
+        }
+
+        if (!isAllowed) {
+          console.error(
+            `[actions] Unauthorized edit attempt. User: ${session.userId} (${session.role}), Request: ${existing.id} (${existing.status})`,
+          );
+          throw new Error("Unauthorized: You can only edit your own requests");
+        }
       }
     }
 
-    if (!requestedById && requestData.requestedByEmail) {
-      const fallbackUser = await db.user.findUnique({
-        where: { email: requestData.requestedByEmail },
-      });
-      if (fallbackUser) {
-        requestedById = fallbackUser.id;
-      } else {
-        const createdUser = await db.user.create({
-          data: {
-            email: requestData.requestedByEmail,
-            name: requestData.requestedBy || requestData.requestedByEmail,
-            password: Math.random().toString(36).slice(2),
-            role: "requester",
-            assignedGates: [],
-          },
-        });
-        requestedById = createdUser.id;
-      }
-    }
-    if (!requestedById) {
-      throw new Error("Could not resolve a valid requester user.");
-    }
+    // Step 3: requestedById is already determined above
+    // const requestedById = session.userId; // REMOVED
+    // const requestedByEmail = session.email; // REMOVED
 
     // Server-side blacklist enforcement + admin alert
     for (const g of guests) {
@@ -293,8 +305,8 @@ export async function saveRequest(
         // Emit-and-forget admin alert (does not block on gateway)
         await notificationService.blacklistAttempt({
           requesterId: requestedById,
-          requesterEmail: requestData.requestedByEmail,
-          requesterName: requestData.requestedBy,
+          requesterEmail: requestedByEmail,
+          requesterName: session.email,
           requestId: request.id,
           matchedBy: res.matchedBy,
           guest: {
@@ -307,40 +319,10 @@ export async function saveRequest(
         throw new Error(`Blacklisted guest detected: ${g.name}`);
       }
     }
-    const verifyUser = await db.user.findUnique({
-      where: { id: requestedById },
-    });
-    if (!verifyUser && requestData.requestedByEmail) {
-      const fallbackUser = await db.user.findUnique({
-        where: { email: requestData.requestedByEmail },
-      });
-      if (fallbackUser) {
-        requestedById = fallbackUser.id;
-      } else {
-        const createdUser = await db.user.create({
-          data: {
-            email: requestData.requestedByEmail,
-            name: requestData.requestedBy || requestData.requestedByEmail,
-            password: Math.random().toString(36).slice(2),
-            role: "requester",
-            assignedGates: [],
-          },
-        });
-        requestedById = createdUser.id;
-      }
-    }
-    if (!requestedById) {
-      throw new Error("Could not resolve a valid requester user.");
-    }
-    const finalUserCheck = await db.user.findUnique({
-      where: { id: requestedById },
-    });
-    if (!finalUserCheck) {
-      throw new Error("User not found for requestedById.");
-    }
+
     const dataToUpsert = {
       requestedById,
-      requestedByEmail: requestData.requestedByEmail,
+      requestedByEmail,
       destination: requestData.destination,
       gate: requestData.gate,
       fromDate: new Date(requestData.fromDate),
@@ -360,14 +342,15 @@ export async function saveRequest(
         ? new Date(requestData.approver2Date)
         : null,
       approver2By: requestData.approver2By,
+      tenantId, 
     };
 
     if (isUpdate) {
       // Update existing guests or create new ones to preserve guest IDs and status
-      const existingGuests = await db.guest.findMany({
+      const existingGuests = await (tdb.guest as any).findMany({
         where: { requestId: request.id },
       });
-      const existingGuestMap = new Map(existingGuests.map((g) => [g.id, g]));
+      const existingGuestMap = new Map(existingGuests.map((g: any) => [g.id, g]));
 
       for (const guest of guests) {
         const guestData: any = {
@@ -381,19 +364,20 @@ export async function saveRequest(
           otherDevice: guest.otherDevice,
           otherDeviceDescription: guest.otherDeviceDescription,
           idPhotoUrl: guest.idPhotoUrl || null,
-          approver1Status: toApprover1Enum(guest.approver1Status || null),
-          approver2Status: toApprover2Enum(guest.approver2Status || null),
+          approver1Status: guest.approver1Status || null,
+          approver2Status: guest.approver2Status || null,
           approver1Comment: guest.approver1Comment || null,
           approver2Comment: guest.approver2Comment || null,
         };
 
         if (guest.id && existingGuestMap.has(guest.id)) {
-          await db.guest.update({
-            where: { id: guest.id },
+          // Extension doesn't inject tenantId into update, so we use updateMany for safety
+          await (tdb.guest as any).updateMany({
+            where: { id: guest.id, tenantId },
             data: guestData,
           });
         } else {
-          await db.guest.create({
+          await (tdb.guest as any).create({
             data: {
               ...guestData,
               requestId: request.id,
@@ -407,14 +391,14 @@ export async function saveRequest(
         guests.filter((g) => g.id).map((g) => g.id!),
       );
       const guestsToDelete = existingGuests.filter(
-        (g) => !currentGuestIds.has(g.id),
+        (g: any) => !currentGuestIds.has(g.id),
       );
       for (const guest of guestsToDelete) {
-        await db.guest.delete({ where: { id: guest.id } });
+        await (tdb.guest as any).deleteMany({ where: { id: guest.id, tenantId } });
       }
 
-      const updatedReq = await db.request.update({
-        where: { id: request.id },
+      const updatedReq = await (tdb.request as any).updateMany({
+        where: { id: request.id, tenantId },
         data: dataToUpsert,
       });
       await createAuditLog(
@@ -429,25 +413,18 @@ export async function saveRequest(
       revalidatePath("/approver2");
       revalidatePath("/reception");
     } else {
-      const createdReq = await db.request.create({
+      const createdReq = await (tdb.request as any).create({
         data: {
           ...dataToUpsert,
           guests: {
             create: guests.map((g) => ({
-              name: g.name,
-              organization: g.organization,
-              email: g.email,
-              phone: g.phone,
-              laptop: g.laptop,
-              mobile: g.mobile,
-              flash: g.flash,
-              otherDevice: g.otherDevice,
-              otherDeviceDescription: g.otherDeviceDescription,
+              ...g,
               idPhotoUrl: g.idPhotoUrl || null,
-              approver1Status: toApprover1Enum(g.approver1Status || null),
-              approver2Status: toApprover2Enum(g.approver2Status || null),
+              approver1Status: g.approver1Status || null,
+              approver2Status: g.approver2Status || null,
               approver1Comment: g.approver1Comment || null,
               approver2Comment: g.approver2Comment || null,
+              tenantId,
             })),
           },
         },
@@ -469,7 +446,10 @@ export async function saveRequest(
 
 export async function getRequestById(id: string): Promise<Request | undefined> {
   try {
-    const requestFromDb = await db.request.findUnique({
+    const { tenantId } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    const requestFromDb = await (tdb.request as any).findFirst({
       where: { id },
       include: { guests: true, requestedBy: true },
     });
@@ -486,7 +466,10 @@ export async function getRequestById(id: string): Promise<Request | undefined> {
 
 export async function deleteRequest(id: string): Promise<void> {
   try {
-    await db.request.delete({ where: { id } });
+    const { tenantId } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    await (tdb.request as any).deleteMany({ where: { id, tenantId } });
     revalidatePath("/admin");
   } catch (error) {
     console.error("[actions] Error deleting request:", error);
@@ -494,70 +477,166 @@ export async function deleteRequest(id: string): Promise<void> {
   }
 }
 
+/**
+ * Check in a guest for an approved request.
+ *
+ * Security: Requires reception or admin role
+ * Race-safe: Uses atomic updateMany with compound WHERE
+ * Validates: Request status, guest approval, no double check-in
+ *
+ * @returns {success: boolean, error?: string}
+ */
 export async function checkInGuest(
   requestId: string,
   guestId: string,
-): Promise<void> {
+): Promise<{ success: boolean; error?: string }> {
   try {
-    await db.guest.update({
-      where: { id: guestId },
-      data: { checkInTime: new Date() },
-    });
-    const req = await db.request.findUnique({ where: { id: requestId } });
-    if (req?.requestedById) {
-      await createAuditLog(req.requestedById, "CHECK_IN", "Guest", guestId, {
-        requestId,
-        guestId,
-      });
+    // Step 1: Verify authorization
+    const { tenantId, session } = await requireTenantSession();
+    if (!["reception", "admin"].includes(session.role)) {
+      return {
+        success: false,
+        error: "Unauthorized: Reception access required",
+      };
     }
-    revalidatePath("/reception");
+
+    const tdb = tenantDb(tenantId);
+
+    return await tdb.$transaction(async (tx) => {
+      // Step 2: Fetch request and verify guest belongs to it
+      // use findFirst with tenantId for isolation
+      const request = await (tx.request as any).findFirst({
+        where: { id: requestId, tenantId },
+        include: { guests: { where: { id: guestId, tenantId } } },
+      });
+
+      if (!request) {
+        return { success: false, error: "Request not found" };
+      }
+
+      // Step 3: Validate request status
+      if (request.status === "withdrawn") {
+        return { success: false, error: "Cannot check in: request withdrawn" };
+      }
+
+      if (request.status !== "approver2_approved") {
+        return {
+          success: false,
+          error: "Request must be approved before check-in",
+        };
+      }
+
+      const guest = request.guests[0];
+      if (!guest) {
+        return { success: false, error: "Guest not found in this request" };
+      }
+
+      // Step 4: Validate guest approval
+      if (guest.approver2Status !== "approved") {
+        return {
+          success: false,
+          error: "Guest must be approved before check-in",
+        };
+      }
+
+      if (guest.checkInTime) {
+        return { success: false, error: "Guest already checked in" };
+      }
+
+      // Step 5: ATOMIC UPDATE with compound WHERE filter (race-safe)
+      const updateResult = await (tx.guest as any).updateMany({
+        where: {
+          id: guestId,
+          requestId: requestId, // Verify guest belongs to request
+          checkInTime: null, // Prevent double check-in
+          tenantId, // Mandatory for isolation
+        },
+        data: { checkInTime: new Date() },
+      });
+
+      if (updateResult.count === 0) {
+        return {
+          success: false,
+          error: "Guest already checked in (race condition)",
+        };
+      }
+
+      // Step 6: Audit log
+      await (tx.auditLog as any).create({
+        data: {
+          userId: session.userId,
+          action: "CHECK_IN",
+          entity: "Guest",
+          entityId: guestId,
+          details: { requestId, guestId },
+          timestamp: new Date(),
+        },
+      });
+
+      return { success: true };
+    });
   } catch (error) {
-    console.error("[actions] Error checking in guest", error);
-    throw error;
+    console.error("[checkInGuest] Error:", error);
+    return { success: false, error: "Check-in failed" };
   }
 }
+
+// ... (imports and other code)
 
 export async function checkOutGuest(
   requestId: string,
   guestId: string,
-): Promise<void> {
+): Promise<{ success: boolean; error?: string }> {
   try {
+    const { tenantId } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
     const cfg = getNotificationConfig();
 
-    const notificationId = await db.$transaction(async (tx) => {
-      await tx.guest.update({
-        where: { id: guestId },
+    const notificationId = await tdb.$transaction(async (tx) => {
+      // Race condition check: Ensure guest isn't already checked out
+      const existingGuest = await (tx.guest as any).findFirst({
+        where: { id: guestId, tenantId },
+      });
+
+      if (!existingGuest) {
+        throw new Error("Guest not found");
+      }
+      if (existingGuest.checkOutTime) {
+        throw new Error("Guest already checked out");
+      }
+
+      await (tx.guest as any).updateMany({
+        where: { id: guestId, tenantId },
         data: { checkOutTime: new Date() },
       });
 
       const [req, guest, settings] = await Promise.all([
-        tx.request.findUnique({ where: { id: requestId } }),
-        tx.guest.findUnique({ where: { id: guestId } }),
-        tx.settings.findFirst({ where: { id: 1 } }),
+        (tx.request as any).findFirst({ where: { id: requestId, tenantId } }),
+        (tx.guest as any).findFirst({ where: { id: guestId, tenantId } }),
+        (tx.settings as any).findFirst({ where: { tenantId } }),
       ]);
       if (!req || !guest || !settings) return null;
 
       const surveyUrl = cfg.appBaseUrl
-        ? `${cfg.appBaseUrl}/survey?requestId=${encodeURIComponent(requestId)}`
-        : "/survey";
+        ? `${cfg.appBaseUrl}/public/survey?requestId=${encodeURIComponent(requestId)}&guestId=${encodeURIComponent(guestId)}`
+        : `/public/survey?requestId=${encodeURIComponent(requestId)}&guestId=${encodeURIComponent(guestId)}`;
 
-      const body = `Hello${guest.name ? ` ${guest.name}` : ""}, your check-out has been recorded.`;
+      const body = `Hello${guest.name ? ` ${guest.name}` : ""}, your check-out has been recorded. We value your feedback. Please share your experience here: ${surveyUrl}`;
+      
+      const emailDispatches = settings.emailNotifications && guest.email
+        ? [{ to: guest.email, subject: "VMS3 Check-out Confirmation", body }]
+        : [];
+      const smsDispatches = settings.smsNotifications && guest.phone
+        ? [{ to: guest.phone, body }]
+        : [];
 
-      const emailDispatches =
-        settings.emailNotifications && guest.email
-          ? [{ to: guest.email, subject: "VMS3 Check-out Confirmation", body }]
-          : [];
-      const smsDispatches =
-        settings.smsNotifications && guest.phone
-          ? [{ to: guest.phone, body }]
-          : [];
-
-      // In-app notification (requester) + outbox rows (guest)
       return await createUserNotificationAndDispatchRecords(tx, {
         userId: req.requestedById,
         type: "guest_checkout_confirmation_sent",
         message: `Check-out confirmation queued for guest ${guest.name}.`,
         requestId,
+        tenantId,
         email: emailDispatches,
         sms: smsDispatches,
       });
@@ -567,7 +646,7 @@ export async function checkOutGuest(
       await enqueueNotificationProcessing(notificationId);
     }
 
-    const req = await db.request.findUnique({ where: { id: requestId } });
+    const req = await (tdb.request as any).findFirst({ where: { id: requestId } });
     if (req?.requestedById) {
       await createAuditLog(req.requestedById, "CHECK_OUT", "Guest", guestId, {
         requestId,
@@ -576,9 +655,17 @@ export async function checkOutGuest(
     }
     revalidatePath("/reception");
     revalidatePath("/survey");
+
+    return { success: true };
   } catch (error) {
     console.error("[actions] Error checking out guest", error);
-    throw error;
+    return {
+      success: false,
+      error:
+        error instanceof Error
+          ? error.message
+          : "Unknown error during checkout",
+    };
   }
 }
 
@@ -587,7 +674,7 @@ export async function runApprover1PendingReminders(): Promise<{
   scanned: number;
 }> {
   const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const pending = await db.request.findMany({
+  const pending = await (db.request as any).findMany({
     where: { status: "approver1_pending", createdAt: { lt: cutoff } },
     select: { id: true, createdAt: true },
     take: 200,
@@ -595,7 +682,7 @@ export async function runApprover1PendingReminders(): Promise<{
   });
 
   await Promise.allSettled(
-    pending.map(async (r) => {
+    pending.map(async (r: any) => {
       await notificationService.approver1PendingReminder({
         requestId: r.id,
         approver1UserId: "role:approver1",
@@ -605,6 +692,21 @@ export async function runApprover1PendingReminders(): Promise<{
   );
 
   return { scanned: pending.length };
+}
+
+// Export request management actions
+// Request management imports moved to top
+
+export async function updateRequestSchedule(
+  requestId: string,
+  fromDate: string,
+  toDate: string,
+) {
+  return await updateScheduleImpl(requestId, fromDate, toDate);
+}
+
+export async function withdrawRequest(requestId: string, reason: string) {
+  return await withdrawRequestImpl(requestId, reason);
 }
 
 // Reception panic button -> notify security via SMS
@@ -618,65 +720,162 @@ export async function triggerEmergencyPanic(input: {
 
 export async function getSurveys(): Promise<Survey[]> {
   try {
-    const surveysFromDb = await db.survey.findMany({
+    const { tenantId } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    return await (tdb.survey as any).findMany({
+      where: { tenantId },
       orderBy: { submittedAt: "desc" },
     });
-    return surveysFromDb.map(mapRowToSurvey);
   } catch (error) {
     console.error("[actions] Error fetching surveys:", error);
     return [];
   }
 }
 
-export async function saveSurvey(
-  survey: Omit<Survey, "id" | "submittedAt">,
-): Promise<void> {
+export async function saveSurvey(survey: Omit<Survey, "id" | "submittedAt">): Promise<{ success: boolean; error?: string }> {
   try {
-    await db.survey.create({ data: survey });
+    const { tenantId } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    // Check for existing survey for this guest
+    const existing = await (tdb.survey as any).findUnique({
+      where: { guestId: survey.guestId },
+    });
+
+    if (existing) {
+      return { success: false, error: "Feedback already submitted for this visit" };
+    }
+
+    await (tdb.survey as any).create({
+      data: {
+        requestId: survey.requestId,
+        guestId: survey.guestId,
+        rating: survey.rating,
+        comment: survey.comment,
+        tenantId: tenantId, // Explicit for safety
+      },
+    });
+    revalidatePath("/admin");
     revalidatePath("/survey");
-    revalidatePath("/reception");
-  } catch (error) {
+    revalidatePath("/t/[slug]/survey", "layout");
+    return { success: true };
+  } catch (error: any) {
     console.error("[actions] Error saving survey:", error);
-    throw error;
+    return { success: false, error: error.message || "An unexpected error occurred" };
   }
 }
 
-export async function getUsers(): Promise<User[]> {
+export async function getUsers(expectedSlug?: string): Promise<User[]> {
   try {
-    const usersFromDb = await db.user.findMany({
-      orderBy: { createdAt: "desc" },
+    const { tenantId } = await requireTenantSession(expectedSlug);
+    const tdb = tenantDb(tenantId);
+    
+    const users = await tdb.user.findMany({
+      orderBy: { name: "asc" },
     });
-    return usersFromDb.map(mapRowToUser);
+    return users.map(mapRowToUser);
   } catch (error) {
     console.error("[actions] Error fetching users:", error);
     return [];
   }
 }
 
-export async function saveUser(
-  user: Omit<User, "id" | "createdAt"> & { id?: string },
-): Promise<void> {
+//working with vms
+// export async function saveUser(
+//   user: Omit<User, "id" | "createdAt"> & { id?: string },
+// ): Promise<void> {
+//   try {
+//     if (user.id) {
+//       const updated = await db.user.update({
+//         where: { id: user.id },
+//         data: user,
+//       });
+//     } else {
+//       const created = await db.user.create({ data: user });
+//     }
+//     const admin = await db.user.findFirst({ where: { role: "admin" } });
+//     if (admin?.id) {
+//       await createAuditLog(
+//         admin.id,
+//         user.id ? "UPDATE" : "CREATE",
+//         "User",
+//         user.id || "new",
+//         user,
+//       );
+//     }
+//     revalidatePath("/admin");
+//     revalidatePath("/settings");
+//   } catch (error) {
+//     console.error("[actions] Error saving user:", error);
+//     throw error;
+//   }
+// }
+
+// Keycloak imports moved to top
+
+export async function saveUser(user: Partial<User> & { id?: string }): Promise<void> {
   try {
+    const { tenantId, session } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
     if (user.id) {
-      const updated = await db.user.update({
-        where: { id: user.id },
-        data: user,
+      // Use updateMany for tenant safety
+      await tdb.user.updateMany({
+        where: { id: user.id, tenantId },
+        data: {
+          ...user,
+        },
       });
+      await createAuditLog(session.userId, "UPDATE", "User", user.id, user);
     } else {
-      const created = await db.user.create({ data: user });
-    }
-    const admin = await db.user.findFirst({ where: { role: "admin" } });
-    if (admin?.id) {
-      await createAuditLog(
-        admin.id,
-        user.id ? "UPDATE" : "CREATE",
-        "User",
-        user.id || "new",
-        user,
-      );
+      if (!user.email) throw new Error("Email is required for new users");
+      
+      const temporaryPassword = (user as any).password || Math.random().toString(36).slice(-10);
+      const role = user.role || "requester";
+
+      // 1. Create in Keycloak
+      try {
+        const kcUser = await kcEnsureUser(user.email, user.name || "");
+        await kcSetPassword(kcUser.id, temporaryPassword);
+        await kcSetSingleRealmRole(kcUser.id, role as VmsRole);
+      } catch (kcError) {
+        console.error("[actions] Keycloak sync failed:", kcError);
+        // We continue to create in DB so the user exists locally, 
+        // but it's a critical warning.
+      }
+
+      // 2. Create in Local DB
+      const newUser = await (tdb as any).user.create({
+        data: {
+          email: user.email.toLowerCase(),
+          name: user.name || "",
+          role: role,
+          password: temporaryPassword,
+          active: user.active ?? true,
+          tenantId,
+        },
+      });
+
+      // 3. Trigger notification
+      try {
+        const tenant = await db.tenant.findUnique({ where: { id: tenantId } });
+        await emitUserRegistrationNow({
+          userId: newUser.id,
+          tenantId,
+          email: user.email,
+          name: user.name || "",
+          temporaryPassword,
+          tenantName: tenant?.name || "Organization",
+          role: role,
+        });
+      } catch (notifError) {
+        console.error("[actions] Notification failed:", notifError);
+      }
+
+      await createAuditLog(session.userId, "CREATE", "User", newUser.id, user);
     }
     revalidatePath("/admin");
-    revalidatePath("/settings");
   } catch (error) {
     console.error("[actions] Error saving user:", error);
     throw error;
@@ -685,7 +884,7 @@ export async function saveUser(
 
 export async function getUserByEmail(email: string): Promise<User | undefined> {
   try {
-    const userFromDb = await db.user.findUnique({ where: { email } });
+    const userFromDb = await db.user.findFirst({ where: { email } });
     if (!userFromDb) return undefined;
     return mapRowToUser(userFromDb);
   } catch (error) {
@@ -712,48 +911,21 @@ export async function deleteUser(id: string): Promise<void> {
   }
 }
 
-export async function getSettings(): Promise<Settings> {
+export async function getSettings(expectedSlug?: string): Promise<Settings> {
   try {
-    const settingsFromDb = await db.settings.findFirst({ where: { id: 1 } });
-    if (!settingsFromDb) {
-      return {
-        approvalSteps: 2,
-        emailNotifications: true,
-        smsNotifications: true,
-        checkInOutNotifications: true,
-        gates: ["228", "229", "230"],
-        primaryColor: "#06b6d4",
-        accentColor: "#0891b2",
-        smtpHost: undefined,
-        smtpPort: undefined,
-        smtpUser: undefined,
-        smtpPassword: undefined,
-        smsGatewayUrl: undefined,
-        smsApiKey: undefined,
-        emailGatewayUrl: undefined,
-        emailApiKey: undefined,
-      };
+    const { tenantId } = await requireTenantSession(expectedSlug);
+    const tdb = tenantDb(tenantId);
+    
+    const settings = await tdb.settings.findFirst({
+      where: { tenantId }
+    });
+    if (!settings) {
+      throw new Error("Settings not found for this organization");
     }
-    return mapRowToSettings(settingsFromDb);
+    return mapRowToSettings(settings);
   } catch (error) {
     console.error("[actions] Error fetching settings:", error);
-    return {
-      approvalSteps: 2,
-      emailNotifications: true,
-      smsNotifications: true,
-      checkInOutNotifications: true,
-      gates: ["228", "229", "230"],
-      primaryColor: "#06b6d4",
-      accentColor: "#0891b2",
-      smtpHost: undefined,
-      smtpPort: undefined,
-      smtpUser: undefined,
-      smtpPassword: undefined,
-      smsGatewayUrl: undefined,
-      smsApiKey: undefined,
-      emailGatewayUrl: undefined,
-      emailApiKey: undefined,
-    };
+    throw error;
   }
 }
 
@@ -761,33 +933,43 @@ export async function saveSettings(
   settings: Partial<Settings>,
 ): Promise<void> {
   try {
-    const currentSettings = await getSettings();
-    const updatedSettings = { ...currentSettings, ...settings };
+    const { tenantId, session } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
 
-    // Encrypt sensitive fields if they have changed or are being set
-    if (settings.smtpPassword) {
-      updatedSettings.smtpPassword = encrypt(settings.smtpPassword);
-    }
-    if (settings.smsApiKey) {
-      updatedSettings.smsApiKey = encrypt(settings.smsApiKey);
-    }
+    // Upsert pattern using updateMany/create
+    const existing = await tdb.settings.findFirst({ where: { tenantId } });
+    
+    if (existing) {
+      // Encrypt sensitive fields if they have changed or are being set
+      if (settings.smtpPassword) {
+        settings.smtpPassword = encrypt(settings.smtpPassword);
+      }
+      if (settings.smsApiKey) {
+        settings.smsApiKey = encrypt(settings.smsApiKey);
+      }
 
-    await db.settings.upsert({
-      where: { id: 1 },
-      update: updatedSettings,
-      create: { id: 1, ...updatedSettings },
-    });
-    const admin = await db.user.findFirst({ where: { role: "admin" } });
-    if (admin?.id) {
-      await createAuditLog(
-        admin.id,
-        "UPDATE",
-        "Settings",
-        "1",
-        updatedSettings,
-      );
+      await tdb.settings.updateMany({
+        where: { tenantId },
+        data: settings,
+      });
+      await createAuditLog(session.userId, "UPDATE", "Settings", existing.id, settings);
+    } else {
+      // Encrypt sensitive fields if they have changed or are being set
+      if (settings.smtpPassword) {
+        settings.smtpPassword = encrypt(settings.smtpPassword);
+      }
+      if (settings.smsApiKey) {
+        settings.smsApiKey = encrypt(settings.smsApiKey);
+      }
+      
+      await tdb.settings.create({
+        data: {
+          ...settings,
+          tenantId,
+        } as any,
+      });
+      await createAuditLog(session.userId, "CREATE", "Settings", "new", settings);
     }
-    revalidatePath("/admin");
     revalidatePath("/settings");
   } catch (error) {
     console.error("[actions] Error saving settings:", error);
@@ -797,10 +979,21 @@ export async function saveSettings(
 
 export async function getNotifications(): Promise<Notification[]> {
   try {
-    const notificationsFromDb = await db.notification.findMany({
+    const { tenantId } = await requireAnySession().then(async (s: any) => {
+      if (s.role === "superadmin") return { tenantId: null, session: s };
+      const ctx = await requireTenantSession();
+      return { tenantId: ctx.tenantId, session: ctx.session };
+    });
+
+    if (!tenantId) return [];
+    
+    const tdb = tenantDb(tenantId);
+    
+    const results = await tdb.notification.findMany({
+      where: { tenantId },
       orderBy: { createdAt: "desc" },
     });
-    return notificationsFromDb.map(mapRowToNotification);
+    return results.map(mapRowToNotification);
   } catch (error) {
     console.error("[actions] Error fetching notifications:", error);
     return [];
@@ -808,19 +1001,18 @@ export async function getNotifications(): Promise<Notification[]> {
 }
 
 export async function saveNotification(
-  notification: Omit<Notification, "id" | "createdAt">,
+  notification: Omit<Notification, "id" | "createdAt" | "read"> & { read?: boolean },
 ): Promise<void> {
   try {
-    const created = await db.notification.create({ data: notification });
-    if (notification.userId) {
-      await createAuditLog(
-        notification.userId,
-        "CREATE",
-        "Notification",
-        created.id,
-        notification,
-      );
-    }
+    const { tenantId } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    await tdb.notification.create({
+      data: {
+        ...notification,
+        tenantId,
+      },
+    });
     revalidatePath("/notifications");
   } catch (error) {
     console.error("[actions] Error saving notification:", error);
@@ -832,13 +1024,23 @@ export async function getNotificationsByUserId(
   userId: string,
 ): Promise<Notification[]> {
   try {
-    const notificationsFromDb = await db.notification.findMany({
-      where: { userId },
+    const { tenantId } = await requireAnySession().then(async (s: any) => {
+      if (s.role === "superadmin") return { tenantId: null, session: s };
+      const ctx = await requireTenantSession();
+      return { tenantId: ctx.tenantId, session: ctx.session };
+    });
+
+    if (!tenantId) return [];
+
+    const tdb = tenantDb(tenantId);
+    
+    const results = await tdb.notification.findMany({
+      where: { userId, tenantId },
       orderBy: { createdAt: "desc" },
     });
-    return notificationsFromDb.map(mapRowToNotification);
+    return results.map(mapRowToNotification);
   } catch (error) {
-    console.error("[actions] Error fetching notifications by user:", error);
+    console.error("[actions] Error fetching user notifications:", error);
     return [];
   }
 }
@@ -965,15 +1167,18 @@ export async function testSmsGateway(
 
 export async function markNotificationAsRead(id: string): Promise<void> {
   try {
-    const existing = await db.notification.findUnique({ where: { id } });
-    await db.notification.update({
-      where: { id },
+    const { tenantId, session } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+    
+    const existing = await tdb.notification.findFirst({ where: { id, tenantId } });
+    if (!existing) return;
+
+    await tdb.notification.updateMany({
+      where: { id, tenantId },
       data: { read: true },
     });
-    const actor = existing?.userId;
-    if (actor) {
-      await createAuditLog(actor, "UPDATE", "Notification", id, { read: true });
-    }
+    
+    await createAuditLog(session.userId, "UPDATE", "Notification", id, { read: true });
     revalidatePath("/notifications");
   } catch (error) {
     console.error("[actions] Error marking notification as read:", error);
@@ -1030,7 +1235,7 @@ export async function saveBlacklistEntry(
         );
       }
     } else {
-      const created = await db.blacklistEntry.create({ data });
+      const created = await db.blacklistEntry.create({ data: { ...data, tenantId: (data as any).tenantId ?? "default-tenant-id" } });
       const admin = await db.user.findFirst({ where: { role: "admin" } });
       if (admin?.id) {
         await createAuditLog(

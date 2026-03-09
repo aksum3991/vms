@@ -11,9 +11,11 @@ const compat = new FlatCompat({
 
 const baseConfigs = [...compat.extends("next/core-web-vitals")]
 
-export default [
+const eslintConfig = [
   {
     ignores: ["**/.next/**", "**/node_modules/**"],
   },
   ...baseConfigs,
 ]
+
+export default eslintConfig

@@ -38,7 +38,8 @@ export interface Request {
     | "approver1-rejected"
     | "approver2-pending"
     | "approver2-approved"
-    | "approver2-rejected";
+    | "approver2-rejected"
+    | "withdrawn";
   createdAt: string;
   updatedAt: string;
   approver1Comment?: string;
@@ -47,6 +48,9 @@ export interface Request {
   approver2Comment?: string;
   approver2Date?: string;
   approver2By?: string;
+  withdrawnAt?: string;
+  withdrawnById?: string;
+  withdrawalReason?: string;
 }
 
 export interface Survey {
@@ -63,7 +67,8 @@ export type UserRole =
   | "requester"
   | "approver1"
   | "approver2"
-  | "reception";
+  | "reception"
+  | "superadmin";
 
 export interface User {
   id: string;
@@ -73,6 +78,8 @@ export interface User {
   role: UserRole;
   assignedGates?: string[]; // For reception users
   active?: boolean; // Added active field for account activation
+  tenantId?: string | null;
+  tenantSlug?: string | null;
   createdAt: string;
 }
 

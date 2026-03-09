@@ -39,6 +39,9 @@ export function Navigation() {
     }
   }, [user, pathname])
 
+  const params = usePathname()?.split('/');
+  const slug = params?.[1] === 't' ? params?.[2] : null;
+
   if (pathname === "/login" || !user) {
     return null
   }
@@ -49,16 +52,17 @@ export function Navigation() {
   }
 
   const links = [
-    { href: "/", label: "New Request", icon: FileText, roles: ["admin", "requester"] },
-    { href: "/requester", label: "My Requests", icon: ListChecks, roles: ["admin", "requester"] },
-    { href: "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin", "approver1", "approver2"] },
-    { href: "/approver1", label: "Approver 1", icon: CheckCircle, roles: ["admin", "approver1"] },
-    { href: "/approver2", label: "Approver 2", icon: CheckCheck, roles: ["admin", "approver2"] },
-    { href: "/reception", label: "Reception", icon: UserCheck, roles: ["admin", "reception"] },
-    { href: "/survey", label: "Survey", icon: ClipboardList, roles: ["admin", "requester"] },
-    { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
-    { href: "/admin", label: "User Admin", icon: Settings, roles: ["admin"] },
-    { href: "/email-preview", label: "Templates", icon: Mail, roles: ["admin"] },
+    { href: slug ? `/t/${slug}` : "/", label: "New Request", icon: FileText, roles: ["admin", "requester"] },
+    { href: slug ? `/t/${slug}/requester` : "/requester", label: "My Requests", icon: ListChecks, roles: ["admin", "requester"] },
+    { href: slug ? `/t/${slug}/dashboard` : "/dashboard", label: "Dashboard", icon: BarChart3, roles: ["admin", "approver1", "approver2"] },
+    { href: slug ? `/t/${slug}/approver1` : "/approver1", label: "Approver 1", icon: CheckCircle, roles: ["admin", "approver1"] },
+    { href: slug ? `/t/${slug}/approver2` : "/approver2", label: "Approver 2", icon: CheckCheck, roles: ["admin", "approver2"] },
+    { href: slug ? `/t/${slug}/reception` : "/reception", label: "Reception", icon: UserCheck, roles: ["admin", "reception"] },
+    { href: slug ? `/t/${slug}/survey` : "/survey", label: "Survey", icon: ClipboardList, roles: ["admin", "requester"] },
+    { href: slug ? `/t/${slug}/settings` : "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
+    { href: slug ? `/t/${slug}/admin` : "/admin", label: "User Admin", icon: Settings, roles: ["admin"] },
+    { href: slug ? `/t/${slug}/email-preview` : "/email-preview", label: "Templates", icon: Mail, roles: ["admin"] },
+    { href: "/superadmin", label: "Global Admin", icon: Settings, roles: ["superadmin"] },
   ]
 
   const visibleLinks = links.filter((link) => link.roles.includes(user.role))

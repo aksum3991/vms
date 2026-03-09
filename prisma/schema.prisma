@@ -11,9 +11,37 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// MULTI-TENANT: Tenant model (one row per organisation using the platform)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique   // URL-safe slug, e.g. "mint" → /t/mint/...
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  users                  User[]
+  requests               Request[]
+  guests                 Guest[]
+  surveys                Survey[]
+  settings               Settings?
+  notifications          Notification[]
+  notificationDispatches NotificationDispatch[]
+  blacklistEntries       BlacklistEntry[]
+  auditLogs              AuditLog[]
+
+  @@map("tenants")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER — tenant-scoped; superadmin has tenantId = null
+// ─────────────────────────────────────────────────────────────────────────────
+
 model User {
   id            String   @id @default(cuid())
-  email         String   @unique
+  email         String
   password      String
   name          String
   role          UserRole @default(requester)
@@ -21,12 +49,24 @@ model User {
   active        Boolean  @default(true)
   createdAt     DateTime @default(now())
 
-  requests      Request[]
-  notifications Notification[]
-  auditLogs     AuditLog[]
+  // Multi-tenant: nullable for superadmin, required for all other roles
+  tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id])
 
+  requests          Request[]     @relation("RequestedBy")
+  withdrawnRequests Request[]     @relation("WithdrawnBy")
+  notifications     Notification[]
+  auditLogs         AuditLog[]
+
+  // Email unique per tenant (not globally)
+  @@unique([tenantId, email])
+  @@index([tenantId])
   @@map("users")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REQUEST
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Request {
   id                 String   @id @default(cuid())
@@ -47,13 +87,28 @@ model Request {
   approver2Comment   String?
   approver2Date      DateTime?
   approver2By        String?
-  
-  requestedBy User   @relation(fields: [requestedById], references: [id])
+  withdrawnAt        DateTime?
+  withdrawnById      String?
+  withdrawalReason   String?
+
+  // Multi-tenant
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  requestedBy User   @relation("RequestedBy", fields: [requestedById], references: [id])
+  withdrawnBy User?  @relation("WithdrawnBy", fields: [withdrawnById], references: [id])
   guests      Guest[]
   surveys     Survey[]
 
+  @@unique([tenantId, approvalNumber])   // approval number unique per tenant
+  @@index([tenantId, createdAt])
+  @@index([tenantId, status])
   @@map("requests")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GUEST — own tenantId column (not inherited from Request)
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Guest {
   id                      String   @id @default(cuid())
@@ -74,12 +129,22 @@ model Guest {
   approver1Comment        String?
   approver2Comment        String?
 
+  // Multi-tenant (redundant with Request.tenantId for direct queries)
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
   requestId String
-  request   Request @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  request   Request  @relation(fields: [requestId], references: [id], onDelete: Cascade)
   Survey    Survey?
 
+  @@index([tenantId, checkInTime])
+  @@index([tenantId, approver2Status])
   @@map("guests")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SURVEY — own tenantId column
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Survey {
   id          String   @id @default(cuid())
@@ -89,14 +154,23 @@ model Survey {
   comment     String
   submittedAt DateTime @default(now())
 
+  // Multi-tenant
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
   request Request @relation(fields: [requestId], references: [id])
   guest   Guest   @relation(fields: [guestId], references: [id])
 
+  @@index([tenantId, submittedAt])
   @@map("surveys")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SETTINGS — one row per tenant (was singleton id=1)
+// ─────────────────────────────────────────────────────────────────────────────
+
 model Settings {
-  id                      Int      @id @default(1)
+  id                      String   @id @default(cuid())  // was: Int @id @default(1)
   approvalSteps           Int      @default(2)
   emailNotifications      Boolean  @default(true)
   smsNotifications        Boolean  @default(true)
@@ -113,26 +187,44 @@ model Settings {
   emailGatewayUrl         String?
   emailApiKey             String?
 
+  // Multi-tenant — unique ensures one settings row per tenant
+  tenantId  String  @unique
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
   @@map("settings")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATION
+// ─────────────────────────────────────────────────────────────────────────────
 
 model Notification {
   id        String   @id @default(cuid())
   userId    String
   type      String
   message   String
-  requestId String
+  requestId String?
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
-  user      User     @relation(fields: [userId], references: [id])
 
+  // Multi-tenant
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  user       User     @relation(fields: [userId], references: [id])
   dispatches NotificationDispatch[]
 
+  @@index([tenantId, userId])
+  @@index([tenantId, read])
   @@map("notifications")
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NOTIFICATION DISPATCH — own tenantId for outbox queries
+// ─────────────────────────────────────────────────────────────────────────────
+
 model NotificationDispatch {
-  id             String                   @id @default(cuid())
+  id             String                     @id @default(cuid())
   notificationId String
   channel        NotificationChannel
   recipient      String
@@ -140,16 +232,25 @@ model NotificationDispatch {
   body           String
   status         NotificationDispatchStatus @default(queued)
   provider       String?
-  attempts       Int                      @default(0)
+  attempts       Int                        @default(0)
   lastError      String?
-  createdAt      DateTime                 @default(now())
-  updatedAt      DateTime                 @updatedAt
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  // Multi-tenant (redundant for outbox processing without joining Notification)
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
 
   notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 
   @@index([notificationId, status])
+  @@index([tenantId, status])
   @@map("notification_dispatches")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// BLACKLIST ENTRY
+// ─────────────────────────────────────────────────────────────────────────────
 
 model BlacklistEntry {
   id           String    @id @default(cuid())
@@ -161,8 +262,18 @@ model BlacklistEntry {
   active       Boolean   @default(true)
   createdAt    DateTime  @default(now())
 
+  // Multi-tenant
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id])
+
+  @@index([tenantId])
+  @@index([tenantId, active])
   @@map("blacklist_entries")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUDIT LOG — tenantId nullable (superadmin platform actions have no tenant)
+// ─────────────────────────────────────────────────────────────────────────────
 
 model AuditLog {
   id        String   @id @default(cuid())
@@ -172,10 +283,20 @@ model AuditLog {
   details   Json
   timestamp DateTime @default(now())
   userId    String
-  user      User     @relation(fields: [userId], references: [id])
 
+  // Multi-tenant — nullable for superadmin actions
+  tenantId  String?
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id])
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, timestamp])
   @@map("audit_logs")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
 
 enum Status {
   draft
@@ -186,10 +307,12 @@ enum Status {
   approver2_pending
   approver2_approved
   approver2_rejected
+  withdrawn
 }
 
 enum UserRole {
-  admin
+  superadmin   // platform-level, tenantId = null
+  admin        // tenant-level admin
   requester
   approver1
   approver2

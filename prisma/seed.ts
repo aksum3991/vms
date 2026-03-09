@@ -2,14 +2,30 @@ import { PrismaClient, UserRole } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
+const DEFAULT_TENANT_ID = 'default-tenant-id'
+
 async function main() {
   console.log(`Start seeding ...`)
 
-  // Create Settings
-  await prisma.settings.upsert({
-    where: { id: 1 },
+  // Ensure default tenant exists
+  await prisma.tenant.upsert({
+    where: { slug: 'default' },
     update: {},
     create: {
+      id: DEFAULT_TENANT_ID,
+      name: 'Default Organization',
+      slug: 'default',
+      active: true,
+    },
+  })
+  console.log(`Seeded default tenant`)
+
+  // Create Settings for default tenant
+  await prisma.settings.upsert({
+    where: { tenantId: DEFAULT_TENANT_ID },
+    update: {},
+    create: {
+      tenantId: DEFAULT_TENANT_ID,
       gates: ['228', '229', '230'],
       approvalSteps: 2,
       emailNotifications: true,
@@ -21,14 +37,15 @@ async function main() {
   })
   console.log(`Seeded settings`)
 
-  // Create Users
+  // Create Users for default tenant
   const users = [
     {
       email: 'admin@example.com',
       name: 'Admin User',
-      password: 'admin123', // In a real app, this should be hashed
+      password: 'admin123',
       role: UserRole.admin,
       assignedGates: ['228', '229', '230'],
+      tenantId: DEFAULT_TENANT_ID,
     },
     {
       email: 'approver1@example.com',
@@ -36,6 +53,7 @@ async function main() {
       password: 'approver123',
       role: UserRole.approver1,
       assignedGates: [],
+      tenantId: DEFAULT_TENANT_ID,
     },
     {
       email: 'approver2@example.com',
@@ -43,6 +61,7 @@ async function main() {
       password: 'approver123',
       role: UserRole.approver2,
       assignedGates: [],
+      tenantId: DEFAULT_TENANT_ID,
     },
     {
       email: 'reception@example.com',
@@ -50,6 +69,7 @@ async function main() {
       password: 'reception123',
       role: UserRole.reception,
       assignedGates: ['228', '229'],
+      tenantId: DEFAULT_TENANT_ID,
     },
     {
       email: 'reception2@example.com',
@@ -57,6 +77,7 @@ async function main() {
       password: 'reception123',
       role: UserRole.reception,
       assignedGates: ['230'],
+      tenantId: DEFAULT_TENANT_ID,
     },
     {
       email: 'requester@example.com',
@@ -64,17 +85,34 @@ async function main() {
       password: 'requester123',
       role: UserRole.requester,
       assignedGates: [],
+      tenantId: DEFAULT_TENANT_ID,
     },
   ]
 
   for (const u of users) {
     const user = await prisma.user.upsert({
-      where: { email: u.email },
+      where: { tenantId_email: { tenantId: DEFAULT_TENANT_ID, email: u.email } },
       update: {},
       create: u,
     })
-    console.log(`Created user with id: ${user.id}`)
+    console.log(`Seeded user: ${user.email}`)
   }
+
+  // Create superadmin (tenant-less)
+  await prisma.user.upsert({
+    where: { id: 'superadmin-user-id' },
+    update: {},
+    create: {
+      id: 'superadmin-user-id',
+      email: 'superadmin@vms.io',
+      name: 'Super Admin',
+      password: 'CHANGE_ME_IMMEDIATELY',
+      role: UserRole.superadmin,
+      assignedGates: [],
+      tenantId: null,
+    },
+  })
+  console.log(`Seeded superadmin`)
 
   console.log(`Seeding finished.`)
 }

@@ -9,6 +9,7 @@ import "./globals.css"
 import { AuthProvider } from "@/lib/auth"
 import { SidebarLayout } from "@/components/sidebar-layout"
 import { Toaster } from "@/components/ui/toaster"
+import { Providers } from "./providers"
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" })
 
@@ -45,10 +46,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`font-sans antialiased ${inter.variable}`}>
-        <AuthProvider>
+        <Providers>
+          <AuthProvider>
           <SidebarLayout>{children}</SidebarLayout>
           <Toaster />
-        </AuthProvider>
+          </AuthProvider>
+        </Providers>
         <Analytics />
       </body>
     </html>

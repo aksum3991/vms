@@ -7,13 +7,15 @@ import type {
   EmergencyPanicEvent,
   GuestCheckoutConfirmationEvent,
   NotificationEvent,
+  UserRegistrationEvent,
 } from "./events";
 import { enqueueAfter } from "./background";
 import { retry } from "./retry";
 import { getEmailProviderFromEnvOrSettings } from "./providers/email";
 import { getSmsProviderFromEnvOrSettings } from "./providers/sms";
 
-type Tx = Prisma.TransactionClient;
+// type Tx = Prisma.TransactionClient;
+type Tx = any; // Relaxed to support extended client transactions
 
 function nowIso() {
   return new Date().toISOString();
@@ -21,7 +23,7 @@ function nowIso() {
 
 async function getSettingsRow(tx?: Tx): Promise<Settings | null> {
   const client = tx ?? db;
-  return client.settings.findFirst({ where: { id: 1 } });
+  return client.settings.findFirst({ where: {} });
 }
 
 function shouldRetry(err: any): boolean {
@@ -91,7 +93,7 @@ export async function processNotification(
   );
   let smsProvider = await getSmsProviderFromEnvOrSettings(settings ?? undefined);
 
-  // console.log(`[notifications] Initial provider check: Email=${!!emailProvider}, SMS=${!!smsProvider}`);
+  console.log(`[notifications] Initial provider check: Email=${!!emailProvider}, SMS=${!!smsProvider}`);
 
   await Promise.allSettled(
     dispatches.map(async (d) => {
@@ -109,7 +111,7 @@ export async function processNotification(
           }
           if (!emailProvider) throw new Error("No email provider configured");
           
-          // console.log(`[notifications] Sending email to: ${d.recipient} using ${emailProvider.constructor.name}`);
+          console.log(`[notifications] Sending email to: ${d.recipient} using ${emailProvider.constructor.name}`);
           
           await retry(
             async () => {
@@ -122,7 +124,7 @@ export async function processNotification(
             { retries: 2, baseDelayMs: 500 },
           );
 
-          // console.log(`[notifications] Email sent successfully to: ${d.recipient}`);
+          console.log(`[notifications] Email sent successfully to: ${d.recipient}`);
           
           await db.notificationDispatch.update({
             where: { id: d.id },
@@ -138,12 +140,12 @@ export async function processNotification(
 
         if (d.channel === "sms") {
           if (!smsProvider) {
-            // console.warn(`[notifications] SMS provider missing. Attempting last-ditch fetch.`);
+            console.warn(`[notifications] SMS provider missing. Attempting last-ditch fetch.`);
             smsProvider = await getSmsProviderFromEnvOrSettings();
           }
           if (!smsProvider) throw new Error("No SMS provider configured");
 
-          // console.log(`[notifications] Sending SMS to: ${d.recipient} using ${smsProvider.constructor.name}`);
+          console.log(`[notifications] Sending SMS to: ${d.recipient} using ${smsProvider.constructor.name}`);
 
           await retry(
             async () => {
@@ -198,7 +200,7 @@ export async function processNotification(
 
 async function createInAppNotification(
   tx: Tx,
-  args: { userId: string; type: string; message: string; requestId: string },
+  args: { userId: string; type: string; message: string; requestId: string; tenantId?: string | null },
 ) {
   return tx.notification.create({
     data: {
@@ -206,6 +208,8 @@ async function createInAppNotification(
       type: args.type,
       message: args.message,
       requestId: args.requestId,
+      // tenantId required by schema — use provided or derive from user's tenant
+      tenantId: args.tenantId ?? "default-tenant-id",
     },
   });
 }
@@ -214,12 +218,14 @@ async function queueDispatches(
   tx: Tx,
   args: {
     notificationId: string;
+    tenantId?: string | null;
     email?: { to: string; subject?: string; body: string }[];
     sms?: { to: string; body: string }[];
   },
 ) {
   const email = args.email ?? [];
   const sms = args.sms ?? [];
+  const tenantId = args.tenantId ?? "default-tenant-id";
 
   const rows: Prisma.NotificationDispatchCreateManyInput[] = [
     ...email.map<Prisma.NotificationDispatchCreateManyInput>((e) => ({
@@ -229,6 +235,7 @@ async function queueDispatches(
       subject: e.subject ?? null,
       body: e.body,
       status: "queued" as const,
+      tenantId,
     })),
     ...sms.map<Prisma.NotificationDispatchCreateManyInput>((s) => ({
       notificationId: args.notificationId,
@@ -237,6 +244,7 @@ async function queueDispatches(
       subject: null,
       body: s.body,
       status: "queued" as const,
+      tenantId,
     })),
   ];
 
@@ -251,6 +259,7 @@ export async function createUserNotificationAndDispatchRecords(
     type: string;
     message: string;
     requestId: string;
+    tenantId?: string; // Add tenantId
     email?: { to: string; subject?: string; body: string }[];
     sms?: { to: string; body: string }[];
   },
@@ -260,10 +269,12 @@ export async function createUserNotificationAndDispatchRecords(
     type: args.type,
     message: args.message,
     requestId: args.requestId,
+    tenantId: args.tenantId, // Pass it
   });
 
   await queueDispatches(tx, {
     notificationId: n.id,
+    tenantId: args.tenantId, // Pass it
     email: args.email,
     sms: args.sms,
   });
@@ -391,8 +402,8 @@ async function emitGuestCheckoutConfirmation(
   if (!req) return;
 
   const surveyUrl = cfg.appBaseUrl
-    ? `${cfg.appBaseUrl}/survey?requestId=${encodeURIComponent(event.requestId)}`
-    : "/survey";
+    ? `${cfg.appBaseUrl}/public/survey?requestId=${encodeURIComponent(event.requestId)}&guestId=${encodeURIComponent((event.guest as any).id)}`
+    : `/public/survey?requestId=${encodeURIComponent(event.requestId)}&guestId=${encodeURIComponent((event.guest as any).id)}`;
   const body = `Hello${event.guest.name ? ` ${event.guest.name}` : ""}, your check-out has been recorded. Please share feedback: ${surveyUrl}`;
 
   const notif = await db.$transaction(async (tx) => {
@@ -469,6 +480,36 @@ async function emitEmergencyPanic(event: EmergencyPanicEvent): Promise<void> {
   );
 }
 
+async function emitUserRegistration(event: UserRegistrationEvent): Promise<void> {
+  const settings = await getSettingsRow();
+  const body = `Welcome to ${event.tenantName}, ${event.name}!\n\nYour account has been created with the role: ${event.role}.\n${event.temporaryPassword ? `Temporary Password: ${event.temporaryPassword}\n\n` : ""}Please log in here: ${process.env.NEXTAUTH_URL}/login`;
+
+  // We don't create an in-app notification for the user since they haven't logged in yet,
+  // but we enqueue the email dispatch.
+  if (settings?.emailNotifications && event.email) {
+    const id = await db.$transaction(async (tx) => {
+      // Create a notification record for the user
+      const n = await (tx.notification as any).create({
+        data: {
+          userId: event.userId,
+          type: "user_registration_invite",
+          message: `Invitation sent to ${event.email}`,
+          requestId: "system",
+          tenantId: event.tenantId,
+        },
+      });
+
+      await queueDispatches(tx, {
+        notificationId: n.id,
+        email: [{ to: event.email, subject: `Welcome to ${event.tenantName}`, body }],
+      });
+      return n.id;
+    });
+
+    await enqueueNotificationProcessing(id);
+  }
+}
+
 export async function emitNotificationEvent(
   event: NotificationEvent,
 ): Promise<void> {
@@ -481,6 +522,8 @@ export async function emitNotificationEvent(
       return emitGuestCheckoutConfirmation(event);
     case "security.panic":
       return emitEmergencyPanic(event);
+    case "user.registration":
+      return emitUserRegistration(event);
     default: {
       const never: never = event;
       throw new Error(`Unhandled notification event: ${(never as any)?.type}`);
@@ -524,6 +567,15 @@ export async function emitEmergencyPanicNow(
   return emitNotificationEvent({
     ...input,
     type: "security.panic",
+    timestamp: nowIso(),
+  });
+}
+export async function emitUserRegistrationNow(
+  input: Omit<UserRegistrationEvent, "type" | "timestamp">,
+) {
+  return emitNotificationEvent({
+    ...input,
+    type: "user.registration",
     timestamp: nowIso(),
   });
 }

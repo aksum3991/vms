@@ -4,6 +4,7 @@ import type React from "react"
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useSession } from "next-auth/react"
 import { useAuth } from "@/lib/auth"
 import type { UserRole } from "@/lib/types"
 
@@ -14,22 +15,29 @@ interface ProtectedRouteProps {
 
 export function ProtectedRoute({ children, allowedRoles }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth()
+  const { status } = useSession()
   const router = useRouter()
 
+  // Still loading either auth source
+  const authLoading = isLoading || status === "loading"
+
   useEffect(() => {
-    if (!isLoading && !user) {
+    if (authLoading) return
+
+    // Only redirect to login if BOTH NextAuth is unauthenticated AND useAuth has no user
+    if (!user) {
       router.push("/login")
-    } else if (!isLoading && user && allowedRoles && !allowedRoles.includes(user.role)) {
-      // Redirect based on user role
+    } else if (allowedRoles && !allowedRoles.includes(user.role)) {
+      // User is authenticated but wrong role
       if (user.role === "reception") {
         router.push("/reception")
       } else {
         router.push("/")
       }
     }
-  }, [user, isLoading, router, allowedRoles])
+  }, [user, authLoading, router, allowedRoles])
 
-  if (isLoading) {
+  if (authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">

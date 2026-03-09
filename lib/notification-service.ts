@@ -23,7 +23,7 @@ export const notificationService = {
   ): Promise<void> {
     const effectiveSettings =
       settings ??
-      (await db.settings.findFirst({ where: { id: 1 } }).catch(() => null));
+      (await db.settings.findFirst({ where: {} }).catch(() => null));
     if (!request.approvalNumber) {
       console.error("[notifications] No approval number found on request");
       return;
@@ -77,7 +77,7 @@ export const notificationService = {
   ): Promise<void> {
     const effectiveSettings =
       settings ??
-      (await db.settings.findFirst({ where: { id: 1 } }).catch(() => null));
+      (await db.settings.findFirst({ where: {} }).catch(() => null));
     const message = `Guest ${guest.name} from ${guest.organization} has checked in at Gate ${request.gate}.`;
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];
@@ -123,7 +123,7 @@ export const notificationService = {
   ): Promise<void> {
     const effectiveSettings =
       settings ??
-      (await db.settings.findFirst({ where: { id: 1 } }).catch(() => null));
+      (await db.settings.findFirst({ where: {} }).catch(() => null));
     const message = `Guest ${guest.name} from ${guest.organization} has checked out from ${request.destination}.`;
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];

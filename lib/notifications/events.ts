@@ -2,7 +2,20 @@ export type NotificationEvent =
   | BlacklistAttemptEvent
   | Approver1PendingReminderEvent
   | GuestCheckoutConfirmationEvent
-  | EmergencyPanicEvent;
+  | EmergencyPanicEvent
+  | UserRegistrationEvent;
+
+export type UserRegistrationEvent = {
+  type: "user.registration";
+  userId: string;
+  tenantId: string;
+  email: string;
+  name: string;
+  temporaryPassword?: string;
+  tenantName: string;
+  role: string;
+  timestamp: string; // ISO
+};
 
 export type BlacklistAttemptEvent = {
   type: "blacklist.attempt";

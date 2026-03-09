@@ -139,7 +139,7 @@ export async function getSmsProviderFromEnvOrSettings(settings?: {
   // If no settings passed, attempt to fetch from DB
   let activeSettings = settings;
   if (!activeSettings) {
-    const row = await db.settings.findFirst({ where: { id: 1 } });
+    const row = await db.settings.findFirst({ where: {} });
     if (row) activeSettings = row;
   }
 
