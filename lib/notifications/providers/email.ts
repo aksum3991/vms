@@ -75,11 +75,10 @@ export class SmtpEmailProvider implements EmailProvider {
     this.transporter = nodemailer.createTransport({
       host: args.host,
       port: args.port,
-      secure: args.port === 465, // true for 465, false for other ports
+      secure: args.port === 465, // true for 465, false for other ports (STARTTLS)
       auth: { user: args.user, pass: args.pass },
       tls: {
-        // Gmail requires TLS
-        ciphers: 'SSLv3',
+        // Modern TLS settings; remove SSLv3 as it's insecure and rejected by Gmail/modern servers
         rejectUnauthorized: false, // For development; set to true in production
       },
       pool: true,

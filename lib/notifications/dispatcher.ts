@@ -87,7 +87,12 @@ export async function processNotification(
 
   if (dispatches.length === 0) return;
 
-  const settings = await getSettingsRow();
+  // Use tenantId from dispatches to fetch correct settings
+  const tenantId = dispatches[0].tenantId;
+  const settings = tenantId && tenantId !== "default-tenant-id"
+    ? await db.settings.findFirst({ where: { tenantId } })
+    : await getSettingsRow();
+
   let emailProvider = await getEmailProviderFromEnvOrSettings(
     settings ?? undefined,
   );
@@ -393,13 +398,13 @@ async function emitGuestCheckoutConfirmation(
   event: GuestCheckoutConfirmationEvent,
 ): Promise<void> {
   const cfg = getNotificationConfig();
-  const settings = await getSettingsRow();
-
   const req = await db.request.findUnique({
     where: { id: event.requestId },
-    select: { requestedById: true, gate: true, destination: true },
+    select: { requestedById: true, gate: true, destination: true, tenantId: true },
   });
   if (!req) return;
+
+  const settings = await db.settings.findFirst({ where: { tenantId: req.tenantId } });
 
   const surveyUrl = cfg.appBaseUrl
     ? `${cfg.appBaseUrl}/public/survey?requestId=${encodeURIComponent(event.requestId)}&guestId=${encodeURIComponent((event.guest as any).id)}`
@@ -432,6 +437,7 @@ async function emitGuestCheckoutConfirmation(
 
     await queueDispatches(tx, {
       notificationId: n.id,
+      tenantId: req.tenantId, // Pass the correct tenantId
       email: emailDispatches,
       sms: smsDispatches,
     });

@@ -150,11 +150,12 @@ function mapRowToSettings(row: any): Settings {
     smtpHost: row.smtpHost || undefined,
     smtpPort: row.smtpPort || undefined,
     smtpUser: row.smtpUser || undefined,
-    smtpPassword: row.smtpPassword || undefined,
+    // Use placeholder to avoid sending encrypted data to client
+    smtpPassword: row.smtpPassword ? "__ENCRYPTED__" : undefined,
     smsGatewayUrl: row.smsGatewayUrl || undefined,
-    smsApiKey: row.smsApiKey || undefined,
+    smsApiKey: row.smsApiKey ? "__ENCRYPTED__" : undefined,
     emailGatewayUrl: row.emailGatewayUrl || undefined,
-    emailApiKey: row.emailApiKey || undefined,
+    emailApiKey: row.emailApiKey ? "__ENCRYPTED__" : undefined,
   };
 }
 
@@ -931,21 +932,37 @@ export async function getSettings(expectedSlug?: string): Promise<Settings> {
 
 export async function saveSettings(
   settings: Partial<Settings>,
+  expectedSlug?: string,
 ): Promise<void> {
   try {
-    const { tenantId, session } = await requireTenantSession();
+    const { tenantId, session } = await requireTenantSession(expectedSlug);
     const tdb = tenantDb(tenantId);
 
     // Upsert pattern using updateMany/create
     const existing = await tdb.settings.findFirst({ where: { tenantId } });
     
     if (existing) {
-      // Encrypt sensitive fields if they have changed or are being set
+      // Encrypt sensitive fields ONLY if they have changed and are not the placeholder
       if (settings.smtpPassword) {
-        settings.smtpPassword = encrypt(settings.smtpPassword);
+        if (settings.smtpPassword === "__ENCRYPTED__") {
+          delete settings.smtpPassword; // Use existing
+        } else {
+          settings.smtpPassword = encrypt(settings.smtpPassword);
+        }
       }
       if (settings.smsApiKey) {
-        settings.smsApiKey = encrypt(settings.smsApiKey);
+        if (settings.smsApiKey === "__ENCRYPTED__") {
+          delete settings.smsApiKey;
+        } else {
+          settings.smsApiKey = encrypt(settings.smsApiKey);
+        }
+      }
+      if (settings.emailApiKey) {
+        if (settings.emailApiKey === "__ENCRYPTED__") {
+          delete settings.emailApiKey;
+        } else {
+          settings.emailApiKey = encrypt(settings.emailApiKey);
+        }
       }
 
       await tdb.settings.updateMany({
@@ -954,12 +971,15 @@ export async function saveSettings(
       });
       await createAuditLog(session.userId, "UPDATE", "Settings", existing.id, settings);
     } else {
-      // Encrypt sensitive fields if they have changed or are being set
-      if (settings.smtpPassword) {
+      // New record: always encrypt if provided and not placeholder (shouldn't be placeholder for new)
+      if (settings.smtpPassword && settings.smtpPassword !== "__ENCRYPTED__") {
         settings.smtpPassword = encrypt(settings.smtpPassword);
       }
-      if (settings.smsApiKey) {
+      if (settings.smsApiKey && settings.smsApiKey !== "__ENCRYPTED__") {
         settings.smsApiKey = encrypt(settings.smsApiKey);
+      }
+      if (settings.emailApiKey && settings.emailApiKey !== "__ENCRYPTED__") {
+        settings.emailApiKey = encrypt(settings.emailApiKey);
       }
       
       await tdb.settings.create({
@@ -1115,14 +1135,37 @@ export async function triggerCheckOutNotification(
 export async function testEmailGateway(
   to: string,
   testSettings?: Partial<Settings>,
+  expectedSlug?: string,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
   try {
-    const dbSettings = await getSettings();
-    const settings = testSettings
-      ? { ...dbSettings, ...testSettings }
-      : dbSettings;
+    const { tenantId } = await requireTenantSession(expectedSlug);
+    const tdb = tenantDb(tenantId);
 
-    const provider = await getEmailProviderFromEnvOrSettings(settings);
+    // Fetch RAW settings from DB (with real encrypted password, not placeholder)
+    const rawDbSettings = await tdb.settings.findFirst({ where: { tenantId } });
+    if (!rawDbSettings) {
+      return { ok: false, error: "Settings not found for this organization" };
+    }
+
+    // Merge: start with raw DB settings, overlay any test overrides from UI
+    const mergedSettings: any = { ...rawDbSettings };
+    if (testSettings) {
+      // Apply non-placeholder overrides from UI
+      for (const [key, value] of Object.entries(testSettings)) {
+        if (value !== undefined && value !== "__ENCRYPTED__") {
+          mergedSettings[key] = value;
+        }
+      }
+    }
+
+    // If SMTP password from UI is a new value (not placeholder), use it directly
+    // by encrypting it so getEmailProviderFromEnvOrSettings can decrypt it
+    if (testSettings?.smtpPassword && testSettings.smtpPassword !== "__ENCRYPTED__") {
+      mergedSettings.smtpPassword = encrypt(testSettings.smtpPassword);
+    }
+    // Otherwise mergedSettings.smtpPassword already has the real encrypted value from DB
+
+    const provider = await getEmailProviderFromEnvOrSettings(mergedSettings);
     if (!provider) {
       return { ok: false, error: "Email provider not configured" };
     }
@@ -1142,14 +1185,34 @@ export async function testEmailGateway(
 export async function testSmsGateway(
   to: string,
   testSettings?: Partial<Settings>,
+  expectedSlug?: string,
 ): Promise<{ ok: boolean; status?: number; error?: string }> {
   try {
-    const dbSettings = await getSettings();
-    const settings = testSettings
-      ? { ...dbSettings, ...testSettings }
-      : dbSettings;
+    const { tenantId } = await requireTenantSession(expectedSlug);
+    const tdb = tenantDb(tenantId);
 
-    const provider = await getSmsProviderFromEnvOrSettings(settings);
+    // Fetch RAW settings from DB (with real encrypted API key, not placeholder)
+    const rawDbSettings = await tdb.settings.findFirst({ where: { tenantId } });
+    if (!rawDbSettings) {
+      return { ok: false, error: "Settings not found for this organization" };
+    }
+
+    // Merge: start with raw DB settings, overlay any test overrides from UI
+    const mergedSettings: any = { ...rawDbSettings };
+    if (testSettings) {
+      for (const [key, value] of Object.entries(testSettings)) {
+        if (value !== undefined && value !== "__ENCRYPTED__") {
+          mergedSettings[key] = value;
+        }
+      }
+    }
+
+    // If SMS API key from UI is a new value (not placeholder), encrypt it
+    if (testSettings?.smsApiKey && testSettings.smsApiKey !== "__ENCRYPTED__") {
+      mergedSettings.smsApiKey = encrypt(testSettings.smsApiKey);
+    }
+
+    const provider = await getSmsProviderFromEnvOrSettings(mergedSettings);
     if (!provider) {
       return { ok: false, error: "SMS provider not configured" };
     }
