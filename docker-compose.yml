@@ -1,7 +1,7 @@
 services:
   db:
     image: postgres:16-alpine
-    container_name: dms-postgres
+    container_name: vms-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -12,9 +12,18 @@ services:
       - pgdata:/var/lib/postgresql/data
   app:
     build: .
-    container_name: dms-app
+    container_name: vms-app
+    env_file:
+      - .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+      - "127.0.0.1:host-gateway"
+      - "localhost:host-gateway"
     environment:
-      DATABASE_URL: postgresql://neondb_owner:npg_4L9oWYgdhHZE@ep-wandering-glade-ad2qjtn4-pooler.c-2.us-east-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require
+      # Node.js ignores /etc/hosts for bare IP inputs like 127.0.0.1.
+      # By passing a hostname (host.docker.internal) here, Node.js resolves it properly to the Windows host.
+      AUTH_KEYCLOAK_ISSUER: "http://host.docker.internal:8082/realms/vms"
+      KC_ADMIN_BASE: "http://host.docker.internal:8082/admin/realms/vms"
       NODE_ENV: production
     depends_on:
       - db

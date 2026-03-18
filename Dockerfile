@@ -11,7 +11,11 @@ RUN apk add --no-cache libc6-compat openssl
 COPY prisma ./prisma
 
 # Install dependencies (postinstall will now find the schema)
-RUN npm install --legacy-peer-deps
+# We set fetch-retries and timeouts to help prevent ECONNRESET on slow networks
+RUN npm config set fetch-retries 5 && \
+    npm config set fetch-retry-mintimeout 20000 && \
+    npm config set fetch-retry-maxtimeout 120000 && \
+    npm install --legacy-peer-deps
 
 # Copy the rest of the application source
 COPY . .
