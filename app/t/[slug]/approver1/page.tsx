@@ -226,8 +226,8 @@ function Approver1PageContent() {
         const hasApprovedGuests = updatedGuests.some(g => g.approver1Status === "approved")
         const approvalNumber = generateApprovalNumber()
         
-        if (settings?.approvalSteps === 1) {
-            // 1-step approval: finalize immediately
+        if (settings?.approvalSteps === 1 || !hasApprovedGuests) {
+            // 1-step approval or all rejected: finalize immediately
             const newStatus: Request["status"] = hasApprovedGuests ? "approver2-approved" : "approver1-rejected"
             
             requestUpdate = {
@@ -246,7 +246,7 @@ function Approver1PageContent() {
                   : `Your request for ${request.destination} has been rejected by Approver 1.`
             }
         } else {
-            // 2-step approval: Always forward to Approver2
+            // 2-step approval with some approved guests: Always forward to Approver2
             wasForwardedToApprover2 = true
             
             requestUpdate = {
@@ -334,8 +334,8 @@ function Approver1PageContent() {
         const hasApprovedGuests = updatedGuests.some(g => g.approver1Status === "approved")
         const approvalNumber = generateApprovalNumber()
         
-        if (settings?.approvalSteps === 1) {
-            // 1-step approval: finalize immediately
+        if (settings?.approvalSteps === 1 || !hasApprovedGuests) {
+            // 1-step approval or all rejected: finalize immediately
             const newStatus: Request["status"] = hasApprovedGuests ? "approver2-approved" : "approver1-rejected"
             
             requestUpdate = {
@@ -354,7 +354,7 @@ function Approver1PageContent() {
                   : `Your request for ${request.destination} has been rejected by Approver 1: ${comment}`
             }
         } else {
-            // 2-step approval: Always forward to Approver2
+            // 2-step approval with some approved guests: Always forward to Approver2
             requestUpdate = {
                 ...requestUpdate,
                 status: "approver2-pending",
@@ -387,10 +387,13 @@ function Approver1PageContent() {
             requestId: request.id,
             read: false,
         })
-        // In 1-step mode, send rejection notification whenever there are rejected guests
-        const hasRejectedGuests = updatedGuests.some(g => g.approver1Status === "rejected" || g.approver1Status === "blacklisted")
-        if (areAllProcessed && settings?.approvalSteps === 1 && hasRejectedGuests) {
+        // Send rejection email notification whenever the notification type is rejection
+        if (notificationToSend.type === "request_rejected") {
              await triggerRejectionNotifications(updated, comment)
+        }
+        // Send approval email notification
+        if (notificationToSend.type === "request_approved") {
+             await triggerApprovalNotifications(updated)
         }
     }
 
@@ -451,8 +454,8 @@ function Approver1PageContent() {
         const hasApprovedGuests = updatedGuests.some(g => g.approver1Status === "approved")
         const approvalNumber = generateApprovalNumber()
         
-        if (settings?.approvalSteps === 1) {
-            // 1-step approval: finalize immediately
+        if (settings?.approvalSteps === 1 || !hasApprovedGuests) {
+            // 1-step approval or all rejected/blacklisted: finalize immediately
             const newStatus: Request["status"] = hasApprovedGuests ? "approver2-approved" : "approver1-rejected"
             
             requestUpdate = {
@@ -471,7 +474,7 @@ function Approver1PageContent() {
                   : `Your request for ${request.destination} has been rejected (Blacklisted) by Approver 1.`
             }
         } else {
-            // 2-step approval: Always forward to Approver2
+            // 2-step approval with some approved guests: Always forward to Approver2
             requestUpdate = {
                 ...requestUpdate,
                 status: "approver2-pending",
@@ -502,9 +505,11 @@ function Approver1PageContent() {
             requestId: request.id,
             read: false,
         })
-        const hasRejectedGuests = updatedGuests.some(g => g.approver1Status === "rejected" || g.approver1Status === "blacklisted")
-        if (areAllProcessed && settings?.approvalSteps === 1 && hasRejectedGuests) {
+        if (notificationToSend.type === "request_rejected") {
              await triggerRejectionNotifications(updated, comment)
+        }
+        if (notificationToSend.type === "request_approved") {
+             await triggerApprovalNotifications(updated)
         }
     }
 

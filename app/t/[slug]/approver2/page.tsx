@@ -399,7 +399,7 @@ function Approver2PageContent() {
             requestId: request.id,
             read: false,
         })
-        if (wasFinallyRejected) {
+        if (notificationToSend.type === "request_rejected") {
             await triggerRejectionNotifications(updated, comment)
         }
     }
