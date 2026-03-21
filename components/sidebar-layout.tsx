@@ -39,7 +39,7 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     return <>{children}</>
   }
 
-  const isSuperAdminPath = pathname.startsWith('/superadmin')
+  const isSuperAdminPath = pathname.startsWith('/superadmin') && user?.role === 'superadmin'
 
   return (
     <div className="flex min-h-screen">

@@ -74,6 +74,7 @@ function mapRowToRequest(row: any, guests: Guest[]): Request {
       : undefined,
     withdrawnById: row.withdrawnById,
     withdrawalReason: row.withdrawalReason,
+    tenantId: row.tenantId,
   };
 }
 
@@ -406,7 +407,7 @@ export async function saveRequest(
         requestedById,
         "UPDATE",
         "Request",
-        updatedReq.id,
+        request.id as string,
         dataToUpsert,
       );
       revalidatePath("/requester");
@@ -940,56 +941,64 @@ export async function saveSettings(
 
     // Upsert pattern using updateMany/create
     const existing = await tdb.settings.findFirst({ where: { tenantId } });
-    
-    if (existing) {
-      // Encrypt sensitive fields ONLY if they have changed and are not the placeholder
-      if (settings.smtpPassword) {
-        if (settings.smtpPassword === "__ENCRYPTED__") {
-          delete settings.smtpPassword; // Use existing
-        } else {
-          settings.smtpPassword = encrypt(settings.smtpPassword);
-        }
-      }
-      if (settings.smsApiKey) {
-        if (settings.smsApiKey === "__ENCRYPTED__") {
-          delete settings.smsApiKey;
-        } else {
-          settings.smsApiKey = encrypt(settings.smsApiKey);
-        }
-      }
-      if (settings.emailApiKey) {
-        if (settings.emailApiKey === "__ENCRYPTED__") {
-          delete settings.emailApiKey;
-        } else {
-          settings.emailApiKey = encrypt(settings.emailApiKey);
-        }
-      }
 
+    // Build a clean data object with only known Prisma fields
+    // We do this explicitly to avoid type mismatches silently dropping fields
+    const dbData: Record<string, any> = {};
+
+    if (settings.approvalSteps !== undefined) dbData.approvalSteps = settings.approvalSteps;
+    if (settings.emailNotifications !== undefined) dbData.emailNotifications = settings.emailNotifications;
+    if (settings.smsNotifications !== undefined) dbData.smsNotifications = settings.smsNotifications;
+    if (settings.checkInOutNotifications !== undefined) dbData.checkInOutNotifications = settings.checkInOutNotifications;
+    if (settings.gates !== undefined) dbData.gates = settings.gates;
+    if (settings.primaryColor !== undefined) dbData.primaryColor = settings.primaryColor;
+    if (settings.accentColor !== undefined) dbData.accentColor = settings.accentColor;
+    if (settings.smtpHost !== undefined) dbData.smtpHost = settings.smtpHost || null;
+    if (settings.smtpPort !== undefined) dbData.smtpPort = settings.smtpPort || null;
+    if (settings.smtpUser !== undefined) dbData.smtpUser = settings.smtpUser || null;
+    if (settings.smsGatewayUrl !== undefined) dbData.smsGatewayUrl = settings.smsGatewayUrl || null;
+    if (settings.emailGatewayUrl !== undefined) dbData.emailGatewayUrl = settings.emailGatewayUrl || null;
+
+    // Handle encrypted fields - only update if a new value is provided (not the placeholder)
+    if (settings.smtpPassword) {
+      dbData.smtpPassword = settings.smtpPassword === "__ENCRYPTED__"
+        ? undefined  // Keep existing value
+        : encrypt(settings.smtpPassword);
+    }
+    if (settings.smsApiKey) {
+      dbData.smsApiKey = settings.smsApiKey === "__ENCRYPTED__"
+        ? undefined
+        : encrypt(settings.smsApiKey);
+    }
+    if (settings.emailApiKey) {
+      dbData.emailApiKey = settings.emailApiKey === "__ENCRYPTED__"
+        ? undefined
+        : encrypt(settings.emailApiKey);
+    }
+
+    // Remove any 'undefined' values so Prisma ignores them (keeps existing)
+    Object.keys(dbData).forEach(k => dbData[k] === undefined && delete dbData[k]);
+
+    console.log(`[saveSettings] tenantId=${tenantId}, fields being saved:`, Object.keys(dbData));
+    console.log(`[saveSettings] smtpHost=${dbData.smtpHost}, smtpUser=${dbData.smtpUser}, smtpPassword=${dbData.smtpPassword ? "SET" : "not set"}`);
+
+    if (existing) {
       await tdb.settings.updateMany({
         where: { tenantId },
-        data: settings,
+        data: dbData,
       });
-      await createAuditLog(session.userId, "UPDATE", "Settings", existing.id, settings);
+      await createAuditLog(session.userId, "UPDATE", "Settings", existing.id, dbData);
     } else {
-      // New record: always encrypt if provided and not placeholder (shouldn't be placeholder for new)
-      if (settings.smtpPassword && settings.smtpPassword !== "__ENCRYPTED__") {
-        settings.smtpPassword = encrypt(settings.smtpPassword);
-      }
-      if (settings.smsApiKey && settings.smsApiKey !== "__ENCRYPTED__") {
-        settings.smsApiKey = encrypt(settings.smsApiKey);
-      }
-      if (settings.emailApiKey && settings.emailApiKey !== "__ENCRYPTED__") {
-        settings.emailApiKey = encrypt(settings.emailApiKey);
-      }
-      
       await tdb.settings.create({
         data: {
-          ...settings,
+          ...dbData,
           tenantId,
         } as any,
       });
-      await createAuditLog(session.userId, "CREATE", "Settings", "new", settings);
+      await createAuditLog(session.userId, "CREATE", "Settings", "new", dbData);
     }
+
+    console.log(`[saveSettings] Save successful for tenant ${tenantId}`);
     revalidatePath("/settings");
   } catch (error) {
     console.error("[actions] Error saving settings:", error);
@@ -1075,6 +1084,20 @@ export async function triggerApprovalNotifications(
     }
   } catch (error) {
     console.error("[actions] Error triggering approval notifications:", error);
+  }
+}
+
+export async function triggerRejectionNotifications(
+  request: Request,
+  comment: string,
+): Promise<void> {
+  try {
+    const settings = await getSettings();
+    if (settings.emailNotifications || settings.smsNotifications) {
+      await notificationService.sendRejectionNotifications(request, comment, settings);
+    }
+  } catch (error) {
+    console.error("[actions] Error triggering rejection notifications:", error);
   }
 }
 
@@ -1167,7 +1190,7 @@ export async function testEmailGateway(
 
     const provider = await getEmailProviderFromEnvOrSettings(mergedSettings);
     if (!provider) {
-      return { ok: false, error: "Email provider not configured" };
+      return { ok: false, error: "Email can't be sent \"contact your administrator\"" };
     }
 
     await provider.send({

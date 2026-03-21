@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Check, X, Edit, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, User, Ban, ListFilter, Clock, CheckCircle } from "lucide-react"
 import type { Request, Guest, Settings } from "@/lib/types"
-import { getRequests, getSettings, saveRequest, saveNotification, saveBlacklistEntry, triggerApprovalNotifications } from "@/lib/actions"
+import { getRequests, getSettings, saveRequest, saveNotification, saveBlacklistEntry, triggerApprovalNotifications, triggerRejectionNotifications } from "@/lib/actions"
 import { ProtectedRoute } from "@/components/protected-route"
 import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/dialog"
@@ -258,6 +258,7 @@ function Approver2PageContent() {
     }
 
     let notificationToSend: { type: string, message: string } | null = null
+    let wasFinallyRejected = false
     let wasFullyApproved = false
 
     if (areAllProcessed) {
@@ -363,6 +364,7 @@ function Approver2PageContent() {
     }
 
     let notificationToSend: { type: string, message: string } | null = null
+    let wasFinallyRejected = false
 
     if (areAllProcessed) {
         const hasApprovedGuests = updatedGuests.some(g => g.approver2Status === "approved")
@@ -376,6 +378,7 @@ function Approver2PageContent() {
                 approver2Date: new Date().toISOString(),
                 approver2By: "Approver 2",
             }
+            wasFinallyRejected = true
             
             notificationToSend = {
                 type: "request_rejected",
@@ -396,6 +399,9 @@ function Approver2PageContent() {
             requestId: request.id,
             read: false,
         })
+        if (wasFinallyRejected) {
+            await triggerRejectionNotifications(updated, comment)
+        }
     }
 
     // Reload data to get fresh state from database
@@ -449,6 +455,8 @@ function Approver2PageContent() {
         updatedAt: new Date().toISOString(),
     }
 
+    let wasFinallyRejected = false
+
     if (areAllProcessed) {
         const hasApprovedGuests = updatedGuests.some(g => g.approver2Status === "approved")
         if (!hasApprovedGuests) {
@@ -456,11 +464,22 @@ function Approver2PageContent() {
             requestUpdate.approver2Comment = comment || "All guests blacklisted"
             requestUpdate.approver2Date = new Date().toISOString()
             requestUpdate.approver2By = "Approver 2"
+            wasFinallyRejected = true
         }
     }
 
     const updated = { ...request, ...requestUpdate } as Request
     await saveRequest(updated)
+    if (wasFinallyRejected) {
+      await saveNotification({
+        userId: request.requestedById,
+        type: "request_rejected" as any,
+        message: `Your request for ${request.destination} has been rejected by Approver 2${comment ? `: ${comment}` : "."}`,
+        requestId: request.id,
+        read: false,
+      })
+      await triggerRejectionNotifications(updated, comment)
+    }
     
     // Reload data to get fresh state from database
     await loadData()

@@ -51,6 +51,7 @@ export interface Request {
   withdrawnAt?: string;
   withdrawnById?: string;
   withdrawalReason?: string;
+  tenantId?: string;
 }
 
 export interface Survey {

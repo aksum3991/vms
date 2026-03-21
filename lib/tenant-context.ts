@@ -16,7 +16,7 @@ import db from "./db"
 // Also support NextAuth sessions (Keycloak flow)
 import { getServerSession as getNextAuthSession } from "next-auth"
 import { authOptions } from "./auth-options"
-import { redirect } from "next/navigation"
+import { redirect, notFound } from "next/navigation"
 
 export interface TenantSession {
   session:    ServerSession
@@ -116,7 +116,7 @@ export async function requireSuperAdminSession(): Promise<ServerSession> {
     redirect("/login")
   }
   if (session.role !== "superadmin") {
-    throw new Error("Unauthorized: superadmin access required")
+    notFound()
   }
   return session
 }

@@ -95,6 +95,7 @@ export async function processNotification(
 
   let emailProvider = await getEmailProviderFromEnvOrSettings(
     settings ?? undefined,
+    tenantId ?? undefined,
   );
   let smsProvider = await getSmsProviderFromEnvOrSettings(settings ?? undefined);
 
@@ -112,9 +113,9 @@ export async function processNotification(
         if (d.channel === "email") {
           if (!emailProvider) {
             console.warn(`[notifications] Email provider missing. Attempting last-ditch fetch.`);
-            emailProvider = await getEmailProviderFromEnvOrSettings();
+            emailProvider = await getEmailProviderFromEnvOrSettings(undefined, tenantId ?? undefined);
           }
-          if (!emailProvider) throw new Error("No email provider configured");
+          if (!emailProvider) throw new Error("Email wasn't configured");
           
           console.log(`[notifications] Sending email to: ${d.recipient} using ${emailProvider.constructor.name}`);
           
@@ -292,6 +293,7 @@ export async function createUserNotificationAndDispatch(args: {
   type: string;
   message: string;
   requestId: string;
+  tenantId?: string;
   email?: { to: string; subject?: string; body: string }[];
   sms?: { to: string; body: string }[];
 }): Promise<string> {

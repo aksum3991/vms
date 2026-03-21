@@ -11,7 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Check, X, Edit, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, User, Ban, ListFilter, Clock, CheckCircle } from "lucide-react"
 import type { Request, Guest, Settings } from "@/lib/types"
-import { getRequests, getSettings, saveRequest, saveNotification, saveBlacklistEntry, triggerApprovalNotifications } from "@/lib/actions"
+import { getRequests, getSettings, saveRequest, saveNotification, saveBlacklistEntry, triggerApprovalNotifications, triggerRejectionNotifications } from "@/lib/actions"
 import { ProtectedRoute } from "@/components/protected-route"
 import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/dialog"
@@ -387,8 +387,10 @@ function Approver1PageContent() {
             requestId: request.id,
             read: false,
         })
-        if (areAllProcessed) {
-             await triggerApprovalNotifications(updated)
+        // In 1-step mode, send rejection notification whenever there are rejected guests
+        const hasRejectedGuests = updatedGuests.some(g => g.approver1Status === "rejected" || g.approver1Status === "blacklisted")
+        if (areAllProcessed && settings?.approvalSteps === 1 && hasRejectedGuests) {
+             await triggerRejectionNotifications(updated, comment)
         }
     }
 
@@ -500,8 +502,9 @@ function Approver1PageContent() {
             requestId: request.id,
             read: false,
         })
-        if (areAllProcessed) {
-             await triggerApprovalNotifications(updated)
+        const hasRejectedGuests = updatedGuests.some(g => g.approver1Status === "rejected" || g.approver1Status === "blacklisted")
+        if (areAllProcessed && settings?.approvalSteps === 1 && hasRejectedGuests) {
+             await triggerRejectionNotifications(updated, comment)
         }
     }
 

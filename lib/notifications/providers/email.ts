@@ -144,55 +144,82 @@ export async function getEmailProviderFromEnvOrSettings(settings?: {
   smtpPassword?: string | null;
   emailGatewayUrl?: string | null;
   emailApiKey?: string | null;
-}): Promise<EmailProvider | null> {
-  // If no settings passed, attempt to fetch from DB
-  let activeSettings = settings;
-  if (!activeSettings) {
-    const row = await db.settings.findFirst({ where: {} });
-    if (row) activeSettings = row;
-  }
-
+  tenantId?: string | null;
+},
+tenantId?: string): Promise<EmailProvider | null> {
   const cfg = getNotificationConfig();
 
-  // 1. Check database SMTP settings (high priority)
-  if (
-    activeSettings?.smtpHost &&
-    activeSettings.smtpPort &&
-    activeSettings.smtpUser &&
-    activeSettings.smtpPassword
-  ) {
-    return new SmtpEmailProvider({
-      host: activeSettings.smtpHost,
-      port: activeSettings.smtpPort,
-      user: activeSettings.smtpUser,
-      pass: decrypt(activeSettings.smtpPassword),
-    });
+  const resolveFromSettings = (
+    source?: {
+      smtpHost?: string | null;
+      smtpPort?: number | null;
+      smtpUser?: string | null;
+      smtpPassword?: string | null;
+      emailGatewayUrl?: string | null;
+      emailApiKey?: string | null;
+    } | null,
+  ): EmailProvider | null => {
+    if (!source) return null;
+
+    if (
+      source.smtpHost &&
+      source.smtpPort &&
+      source.smtpUser &&
+      source.smtpPassword
+    ) {
+      return new SmtpEmailProvider({
+        host: source.smtpHost,
+        port: source.smtpPort,
+        user: source.smtpUser,
+        pass: decrypt(source.smtpPassword),
+      });
+    }
+
+    if (source.emailGatewayUrl) {
+      return new HttpEmailGatewayProvider({
+        url: source.emailGatewayUrl,
+        apiKey: source.emailApiKey ? decrypt(source.emailApiKey) : undefined,
+      });
+    }
+
+    return null;
+  };
+
+  // 1) Explicit settings passed by caller (usually tenant settings) - highest priority.
+  const explicitProvider = resolveFromSettings(settings);
+  if (explicitProvider) return explicitProvider;
+
+  // 2) Try to load tenant settings from DB when caller provided tenant context.
+  const effectiveTenantId = tenantId ?? settings?.tenantId;
+  if (effectiveTenantId) {
+    const tenantRow = await db.settings.findFirst({ where: { tenantId: effectiveTenantId } });
+    const tenantProvider = resolveFromSettings(tenantRow);
+    if (tenantProvider) return tenantProvider;
   }
 
-  // 2. Check environment SMTP (fallback for Gmail)
+  // 3) Fallback to any DB settings row (legacy/single-tenant compatibility).
+  if (!settings) {
+    const row = await db.settings.findFirst({ where: {} });
+    const rowProvider = resolveFromSettings(row);
+    if (rowProvider) return rowProvider;
+  }
+
+  // 4) Environment SMTP fallback.
   if (cfg.smtpHost && cfg.smtpPort && cfg.smtpUser && cfg.smtpPassword) {
     return new SmtpEmailProvider({
       host: cfg.smtpHost,
       port: cfg.smtpPort,
       user: cfg.smtpUser,
       pass: cfg.smtpPassword,
-      from: cfg.emailFrom ?? cfg.smtpUser,
+      from: cfg.emailFrom || cfg.smtpUser,
     });
   }
 
-  // 3. Check Resend API (fallback)
+  // 5) Resend fallback.
   if (cfg.resendApiKey && cfg.emailFrom) {
     return new ResendEmailProvider({
       apiKey: cfg.resendApiKey,
       from: cfg.emailFrom,
-    });
-  }
-
-  // 4. Check database email gateway settings
-  if (activeSettings?.emailGatewayUrl) {
-    return new HttpEmailGatewayProvider({
-      url: activeSettings.emailGatewayUrl,
-      apiKey: activeSettings.emailApiKey ? decrypt(activeSettings.emailApiKey) : undefined,
     });
   }
 

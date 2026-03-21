@@ -23,7 +23,7 @@ export const notificationService = {
   ): Promise<void> {
     const effectiveSettings =
       settings ??
-      (await db.settings.findFirst({ where: {} }).catch(() => null));
+      (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
     if (!request.approvalNumber) {
       console.error("[notifications] No approval number found on request");
       return;
@@ -67,6 +67,51 @@ export const notificationService = {
       requestId: request.id,
       email: emailDispatches,
       sms: smsDispatches,
+      tenantId: request.tenantId,
+    });
+  },
+
+  async sendRejectionNotifications(
+    request: Request,
+    comment: string,
+    settings?: Settings,
+  ): Promise<void> {
+    const effectiveSettings =
+      settings ??
+      (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
+
+    const message = `Your visit request to ${request.destination} (Gate: ${request.gate}) on ${request.fromDate} has been rejected.${comment ? `\n\nReason: ${comment}` : ""}`;
+    const emailSubject = `Visit Request Rejected - ${request.destination}`;
+
+    const emailDispatches: { to: string; subject?: string; body: string }[] = [];
+    const smsDispatches: { to: string; body: string }[] = [];
+
+    if (effectiveSettings?.emailNotifications && request.requestedByEmail) {
+      emailDispatches.push({
+        to: request.requestedByEmail,
+        subject: emailSubject,
+        body: message,
+      });
+    }
+
+    // Only send the SMS to the requester if they have their phone mapped in the guests list
+    if (effectiveSettings?.smsNotifications) {
+      const requesterAsGuest = request.guests.find(
+        (g) => g.email === request.requestedByEmail
+      );
+      if (requesterAsGuest?.phone) {
+        smsDispatches.push({ to: requesterAsGuest.phone, body: message });
+      }
+    }
+
+    await createUserNotificationAndDispatch({
+      userId: request.requestedById,
+      type: "request_rejected",
+      message: `Request rejected. ${comment ? `Reason: ${comment}` : ""}`,
+      requestId: request.id,
+      email: emailDispatches,
+      sms: smsDispatches,
+      tenantId: request.tenantId,
     });
   },
 
@@ -77,7 +122,7 @@ export const notificationService = {
   ): Promise<void> {
     const effectiveSettings =
       settings ??
-      (await db.settings.findFirst({ where: {} }).catch(() => null));
+      (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
     const message = `Guest ${guest.name} from ${guest.organization} has checked in at Gate ${request.gate}.`;
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];
@@ -113,6 +158,7 @@ export const notificationService = {
       requestId: request.id,
       email: emailDispatches,
       sms: smsDispatches,
+      tenantId: request.tenantId,
     });
   },
 
@@ -123,7 +169,7 @@ export const notificationService = {
   ): Promise<void> {
     const effectiveSettings =
       settings ??
-      (await db.settings.findFirst({ where: {} }).catch(() => null));
+      (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
     const message = `Guest ${guest.name} from ${guest.organization} has checked out from ${request.destination}.`;
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];
@@ -157,6 +203,7 @@ export const notificationService = {
       requestId: request.id,
       email: emailDispatches,
       sms: smsDispatches,
+      tenantId: request.tenantId,
     });
   },
 
