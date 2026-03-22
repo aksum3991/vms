@@ -29,8 +29,12 @@ export const notificationService = {
       return;
     }
 
+    const finalApproverName = request.approver2By || request.approver1By || "an approver";
+    const finalApproverComment = request.approver2Comment || request.approver1Comment || "";
+    const commentText = finalApproverComment ? `\n\nApprover Comment: ${finalApproverComment}` : "";
+
     const approvalNumber = request.approvalNumber;
-    const message = `Your visit request has been approved! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}. Please present this approval number at reception.`;
+    const message = `Your visit request has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}. Please present this approval number at reception.${commentText}`;
     const emailSubject = `Visit Request Approved - ${approvalNumber}`;
 
     const emailDispatches: { to: string; subject?: string; body: string }[] =
@@ -46,7 +50,7 @@ export const notificationService = {
     }
 
     for (const guest of request.guests) {
-      const guestMessage = `Dear ${guest.name}, your visit to ${request.destination} has been approved! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}.`;
+      const guestMessage = `Dear ${guest.name}, your visit to ${request.destination} has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}.${commentText}`;
       if (effectiveSettings?.emailNotifications && guest.email) {
         emailDispatches.push({
           to: guest.email,
