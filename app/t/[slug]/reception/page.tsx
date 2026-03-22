@@ -87,9 +87,12 @@ function ReceptionPageContent() {
           return
         }
 
-        // Include guests approved by approver 2
+        // Include approved guests based on the tenant's exact workflow
         const approvedGuests = request.guests.filter(guest => {
-          console.log(`    Guest ${guest.name}: App2Status=${guest.approver2Status}`)
+          console.log(`    Guest ${guest.name}: App1Status=${guest.approver1Status}, App2Status=${guest.approver2Status}`)
+          if (settings?.approvalSteps === 1) {
+             return guest.approver1Status === "approved"
+          }
           return guest.approver2Status === "approved"
         })
         
