@@ -233,7 +233,7 @@ function RequestSubmissionPageContent() {
     try {
       await saveRequest(request);
       toast({ variant: "success", title: "Request Submitted Successfully!" });
-      router.refresh();
+      router.push(`/t/${slug}/requester`);
     } catch (error) {
       toast({ variant: "destructive", title: "Submission Failed" });
     }

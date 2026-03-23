@@ -387,23 +387,24 @@ function RequesterContent() {
           </div>
         )}
 
-        {/* Request Details Dialog */}
         <Dialog open={selectedRequest !== null} onOpenChange={() => setSelectedRequest(null)}>
-          <DialogContent className="max-w-2xl overflow-hidden p-0">
-             <div className="bg-primary/5 p-6 pb-4 border-b">
+          <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-hidden p-0 flex flex-col">
+             <div className="bg-primary/5 p-6 pb-4 border-b pr-12">
                 <DialogHeader>
-                  <div className="flex items-center justify-between">
-                    <DialogTitle className="text-xl">Request Details</DialogTitle>
-                    {selectedRequest && getStatusBadge(selectedRequest.status)}
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                    <DialogTitle className="text-xl text-left">Request Details</DialogTitle>
+                    <div className="flex items-center self-start sm:self-center">
+                       {selectedRequest && getStatusBadge(selectedRequest.status)}
+                    </div>
                   </div>
-                  <DialogDescription>
+                  <DialogDescription className="text-left">
                     ID: <span className="font-mono text-xs">{selectedRequest?.id}</span>
                   </DialogDescription>
                 </DialogHeader>
              </div>
              
             {selectedRequest && (
-              <div className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              <div className="p-6 space-y-6 flex-1 overflow-y-auto">
                 {/* Approval Banner */}
                 {selectedRequest.approvalNumber && (
                    <div className="flex items-center justify-between rounded-lg border border-green-200 bg-green-50 p-4 text-green-800">
@@ -411,38 +412,38 @@ function RequesterContent() {
                         <p className="text-xs font-semibold uppercase tracking-wider text-green-600">Approval Number</p>
                         <p className="font-mono text-2xl font-bold">{selectedRequest.approvalNumber}</p>
                       </div>
-                      <div className="rounded-full bg-green-200 p-2">
+                      <div className="hidden sm:flex rounded-full bg-green-200 p-2">
                         <Users className="size-6 text-green-700" />
                       </div>
                    </div>
                 )}
 
-                <div className="grid gap-6 sm:grid-cols-2">
+                <div className="grid gap-6 grid-cols-1 sm:grid-cols-2">
                   <div className="space-y-4">
                      <div>
                         <Label className="text-xs text-muted-foreground uppercase tracking-wider">Destination</Label>
-                        <p className="font-medium text-gray-900">{selectedRequest.destination}</p>
+                        <p className="font-medium text-gray-900 break-words">{selectedRequest.destination}</p>
                      </div>
                      <div>
                         <Label className="text-xs text-muted-foreground uppercase tracking-wider">Gate</Label>
-                        <p className="font-medium text-gray-900">{selectedRequest.gate}</p>
+                        <p className="font-medium text-gray-900 break-words">{selectedRequest.gate}</p>
                      </div>
                   </div>
                   <div className="space-y-4">
                      <div>
                         <Label className="text-xs text-muted-foreground uppercase tracking-wider">From</Label>
-                        <p className="font-medium text-gray-900">{new Date(selectedRequest.fromDate).toLocaleString()}</p>
+                        <p className="font-medium text-gray-900 break-words">{new Date(selectedRequest.fromDate).toLocaleString()}</p>
                      </div>
                      <div>
                         <Label className="text-xs text-muted-foreground uppercase tracking-wider">To</Label>
-                        <p className="font-medium text-gray-900">{new Date(selectedRequest.toDate).toLocaleString()}</p>
+                        <p className="font-medium text-gray-900 break-words">{new Date(selectedRequest.toDate).toLocaleString()}</p>
                      </div>
                   </div>
                 </div>
 
                 <div>
                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">Purpose</Label>
-                   <div className="mt-1 rounded-md bg-gray-50 p-3 text-sm text-gray-700 border">
+                   <div className="mt-1 rounded-md bg-gray-50 p-3 text-sm text-gray-700 border break-words whitespace-pre-wrap">
                       {selectedRequest.purpose}
                    </div>
                 </div>

@@ -538,8 +538,9 @@ function Approver1PageContent() {
   }
   
   const pendingCount = allRequests.filter(r => r.status === "submitted" || r.status === "approver1-pending").length;
-  const approvedCount = allRequests.filter(r => r.status === "approver1-approved").length;
+  const approvedCount = allRequests.filter(r => ["approver1-approved", "approver2-pending", "approver2-approved", "approver2-rejected"].includes(r.status)).length;
   const rejectedCount = allRequests.filter(r => r.status === "approver1-rejected").length;
+  const totalRelevantCount = pendingCount + approvedCount + rejectedCount;
   
   return (
     <div className="flex h-screen flex-col bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -569,7 +570,7 @@ function Approver1PageContent() {
         <Card>
           <CardContent className="p-1">
             <h3 className="text-xs font-medium text-gray-500">All</h3>
-            <p className="text-lg font-bold">{allRequests.length}</p>
+            <p className="text-lg font-bold">{totalRelevantCount}</p>
           </CardContent>
         </Card>
       </div>
