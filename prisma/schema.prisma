@@ -230,6 +230,8 @@ model NotificationDispatch {
   recipient      String
   subject        String?
   body           String
+  html           String?
+  attachments    Json?
   status         NotificationDispatchStatus @default(queued)
   provider       String?
   attempts       Int                        @default(0)

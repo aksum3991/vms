@@ -121,10 +121,13 @@ export async function processNotification(
           
           await retry(
             async () => {
+              const dispatch = d as any;
               await emailProvider!.send({
-                to: d.recipient,
-                subject: d.subject ?? "Notification",
-                text: d.body,
+                to: dispatch.recipient,
+                subject: dispatch.subject ?? "Notification",
+                text: dispatch.body,
+                html: dispatch.html ?? undefined,
+                attachments: dispatch.attachments as any,
               });
             },
             { retries: 2, baseDelayMs: 500 },
@@ -225,7 +228,7 @@ async function queueDispatches(
   args: {
     notificationId: string;
     tenantId?: string | null;
-    email?: { to: string; subject?: string; body: string }[];
+    email?: { to: string; subject?: string; body: string; html?: string; attachments?: any[] }[];
     sms?: { to: string; body: string }[];
   },
 ) {
@@ -240,6 +243,8 @@ async function queueDispatches(
       recipient: e.to,
       subject: e.subject ?? null,
       body: e.body,
+      html: e.html ?? null,
+      attachments: e.attachments ?? null,
       status: "queued" as const,
       tenantId,
     })),
@@ -266,7 +271,7 @@ export async function createUserNotificationAndDispatchRecords(
     message: string;
     requestId: string;
     tenantId?: string; // Add tenantId
-    email?: { to: string; subject?: string; body: string }[];
+    email?: { to: string; subject?: string; body: string; html?: string; attachments?: any[] }[];
     sms?: { to: string; body: string }[];
   },
 ): Promise<string> {
@@ -294,7 +299,7 @@ export async function createUserNotificationAndDispatch(args: {
   message: string;
   requestId: string;
   tenantId?: string;
-  email?: { to: string; subject?: string; body: string }[];
+  email?: { to: string; subject?: string; body: string; html?: string; attachments?: any[] }[];
   sms?: { to: string; body: string }[];
 }): Promise<string> {
   const id = await db.$transaction(async (tx) => {

@@ -155,6 +155,97 @@ function ReceptionPageContent() {
     setCurrentPage(1)
   }, [searchTerm, gateFilter, allGuests])
 
+  // QR Scanner Integration (Laser Scanners)
+  useEffect(() => {
+    let buffer = "";
+    let lastKeyTime = Date.now();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Scanners are very fast, usually < 50ms between keys
+      const currentTime = Date.now();
+      if (currentTime - lastKeyTime > 100) {
+        buffer = ""; // Clear buffer if it's slow manual typing
+      }
+      lastKeyTime = currentTime;
+
+      if (e.key === "Enter") {
+        const input = buffer.trim();
+        let requestId: string | null = null;
+        let guestId: string | null = null;
+
+        if (input.startsWith("{") && input.endsWith("}")) {
+          // Legacy/Direct JSON format
+          try {
+            const data = JSON.parse(input);
+            requestId = data.r;
+            guestId = data.g;
+          } catch (err) {
+            console.error("Failed to parse QR JSON:", input);
+          }
+        } else if (input.includes("/reception/scan?")) {
+          // New URL format
+          try {
+            const url = new URL(input);
+            requestId = url.searchParams.get("r");
+            guestId = url.searchParams.get("g");
+          } catch (err) {
+            // Fallback for scanners that might not send a full valid URL or stripped parts
+            const rMatch = input.match(/[?&]r=([^&]+)/);
+            const gMatch = input.match(/[?&]g=([^&]+)/);
+            requestId = rMatch ? rMatch[1] : null;
+            guestId = gMatch ? gMatch[1] : null;
+          }
+        }
+
+        if (requestId && guestId) {
+          handleQRScan(requestId, guestId);
+        }
+        
+        buffer = "";
+      } else if (e.key.length === 1) {
+        buffer += e.key;
+      }
+    };
+
+    const handleQRScan = async (requestId: string, guestId: string) => {
+      // Find guest in our current list to determine if they need check-in or check-out
+      const guest = allGuests.find(g => g.id === guestId && g.requestId === requestId);
+      
+      if (!guest) {
+        toast({
+          variant: "destructive",
+          title: "Invalid QR Code",
+          description: "Guest not found or not authorized for this gate.",
+        });
+        return;
+      }
+
+      if (!guest.checkInTime) {
+        toast({ title: "Scanner Detected", description: `Checking in ${guest.name}...` });
+        await handleCheckIn(guest.id, guest.requestId);
+      } else if (!guest.checkOutTime) {
+        toast({ title: "Scanner Detected", description: `Checking out ${guest.name}...` });
+        // For checkout we just trigger the dialog or perform it directly?
+        // Let's perform it directly if scanned for speed, but follow the logic
+        setCurrentGuest(guest);
+        // We'll show the dialog for confirmation as per existing UI flow or just do it?
+        // Receptionists usually want speed. Let's do it directly.
+        
+        // Actually performCheckOut depends on currentGuest state
+        // I'll call a dedicated fast checkout function or trigger the button logic
+        setShowCheckoutDialog(true);
+      } else {
+        toast({
+          title: "Already Processed",
+          description: `${guest.name} has already checked out.`,
+        });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [allGuests]);
+
   const handleCheckIn = async (guestId: string, requestId: string) => {
     try {
       const request = await getRequestById(requestId)

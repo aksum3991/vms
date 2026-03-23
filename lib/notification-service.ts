@@ -7,6 +7,7 @@ import {
   emitEmergencyPanicNow,
   emitGuestCheckoutConfirmationNow,
 } from "./notifications/dispatcher";
+import QRCode from "qrcode";
 
 export const notificationService = {
   // Generate a unique approval number
@@ -31,10 +32,10 @@ export const notificationService = {
 
     const finalApproverName = request.approver2By || request.approver1By || "an approver";
     const finalApproverComment = request.approver2Comment || request.approver1Comment || "";
-    const commentText = finalApproverComment ? `\n\nApprover Comment: ${finalApproverComment}` : "";
+    const commentText = finalApproverComment || ""; // Use raw text to avoid double labeling later
 
     const approvalNumber = request.approvalNumber;
-    const message = `Your visit request has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}. Please present this approval number at reception.${commentText}`;
+    const message = `Your visit request has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}. Please present this approval number at reception.${commentText ? `\n\nApprover Comment: ${commentText}` : ""}`;
     const emailSubject = `Visit Request Approved - ${approvalNumber}`;
 
     const emailDispatches: { to: string; subject?: string; body: string }[] =
@@ -49,14 +50,61 @@ export const notificationService = {
       });
     }
 
+    const isFinalApproval = (request.status as string) === "approver2-approved";
+
     for (const guest of request.guests) {
-      const guestMessage = `Dear ${guest.name}, your visit to ${request.destination} has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}.${commentText}`;
+      let htmlMessage: string | undefined = undefined;
+      let attachments: any[] | undefined = undefined;
+
+      if (isFinalApproval) {
+        // Generate QR Code only for final approval
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "";
+        const scanUrl = `${baseUrl}/t/${request.tenantId}/reception/scan?r=${request.id}&g=${guest.id}`;
+        const qrDataUrl = await QRCode.toDataURL(scanUrl, { margin: 1 });
+        const qrBuffer = Buffer.from(qrDataUrl.split(",")[1], "base64");
+        const cid = `qr-${guest.id}`;
+
+        htmlMessage = `
+        <div style="font-family: sans-serif; line-height: 1.5; color: #333;">
+          <p>Dear ${guest.name},</p>
+          <p>Your visit to <strong>${request.destination}</strong> has been approved by ${finalApproverName}.</p>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 20px; border-radius: 12px; margin: 25px 0; max-width: 400px;">
+            <p style="margin: 0 0 10px 0; font-size: 14px; color: #64748b;">Visit Details</p>
+            <p style="margin: 0 0 5px 0;"><strong>Approval Number:</strong> <span style="font-family: monospace; color: #2563eb;">${approvalNumber}</span></p>
+            <p style="margin: 0 0 5px 0;"><strong>Gate:</strong> ${request.gate}</p>
+            <p style="margin: 0 0 5px 0;"><strong>Date:</strong> ${request.fromDate} to ${request.toDate}</p>
+          </div>
+          ${commentText ? `<div style="border-left: 4px solid #2563eb; padding-left: 15px; margin: 20px 0; font-style: italic; color: #4b5563;"><strong>Approver Comment:</strong> ${commentText}</div>` : ""}
+          <p><strong>Check-in Pass:</strong> Please present this QR code at the gate/reception desk.</p>
+          <div style="margin: 25px 0; text-align: center; max-width: 200px;">
+            <img src="cid:${cid}" alt="Visit QR Code" style="display: block; width: 200px; height: 200px; border: 1px solid #e2e8f0; border-radius: 8px;" />
+          </div>
+          <p style="font-size: 14px; color: #64748b;">This code is valid only for the dates specified above.</p>
+          <p>Thank you!</p>
+        </div>
+      `;
+
+        attachments = [
+          {
+            filename: `qr-${guest.id}.png`,
+            content: qrBuffer.toString("base64"), // Store as string for DB safety
+            cid: cid,
+            contentType: "image/png",
+            encoding: "base64",
+          },
+        ];
+      }
+
+      const guestMessage = `Dear ${guest.name}, your visit to ${request.destination} has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}.${commentText ? `\n\nApprover Comment: ${commentText}` : ""}`;
+
       if (effectiveSettings?.emailNotifications && guest.email) {
         emailDispatches.push({
           to: guest.email,
           subject: `Visit Approved - ${approvalNumber}`,
           body: guestMessage,
-        });
+          html: htmlMessage,
+          attachments: attachments,
+        } as any);
       }
       if (effectiveSettings?.smsNotifications && guest.phone) {
         smsDispatches.push({ to: guest.phone, body: guestMessage });

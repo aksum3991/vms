@@ -9,6 +9,13 @@ export type EmailPayload = {
   subject: string;
   text: string;
   html?: string;
+  attachments?: {
+    filename: string;
+    content: string | Buffer;
+    cid?: string;
+    contentType?: string;
+    encoding?: string;
+  }[];
 };
 
 export type EmailSendResult = {
@@ -42,6 +49,14 @@ export class ResendEmailProvider implements EmailProvider {
         subject: payload.subject,
         text: payload.text,
         ...(payload.html ? { html: payload.html } : {}),
+        ...(payload.attachments
+          ? {
+              attachments: payload.attachments.map((a) => ({
+                filename: a.filename,
+                content: typeof a.content === "string" ? a.content : a.content.toString("base64"),
+              })),
+            }
+          : {}),
       }),
     });
 
@@ -94,6 +109,13 @@ export class SmtpEmailProvider implements EmailProvider {
       subject: payload.subject,
       text: payload.text,
       ...(payload.html ? { html: payload.html } : {}),
+      attachments: payload.attachments?.map((a) => ({
+        filename: a.filename,
+        content: a.content,
+        cid: a.cid,
+        contentType: a.contentType,
+        encoding: a.encoding as any, // "base64" etc.
+      })),
     });
 
     return { provider: "smtp", providerMessageId: (info as any)?.messageId };
