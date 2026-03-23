@@ -12,6 +12,9 @@ import { Star, CheckCircle, Send, ChevronLeft, ChevronRight } from "lucide-react
 import type { Guest, Survey, Request } from "@/lib/types"
 import { getRequests, getSurveys, saveSurvey, getRequestById } from "@/lib/actions"
 import { useToast } from "@/components/ui/use-toast"
+import { useAuth } from "@/lib/auth"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 
 interface GuestWithRequest extends Guest {
   requestId: string
@@ -22,6 +25,7 @@ export default function SurveyPage() {
   const params = useParams()
   const slug = params?.slug as string
   const { toast } = useToast()
+  const { user } = useAuth()
   const [checkedOutGuests, setCheckedOutGuests] = useState<GuestWithRequest[]>([])
   const [selectedGuest, setSelectedGuest] = useState<GuestWithRequest | null>(null)
   const [rating, setRating] = useState(0)
@@ -150,7 +154,114 @@ export default function SurveyPage() {
       <div className="mx-auto max-w-5xl">
         <h1 className="mb-6 text-3xl font-bold text-cyan-600">Guest Feedback Survey</h1>
 
-        {submitted ? (
+        {user?.role === "admin" ? (
+          <div className="space-y-6">
+            <Card className="p-6">
+               <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-xl font-bold text-gray-900">Survey Completion Tracking</h2>
+                  <div className="text-sm text-gray-500">
+                     Total Guests: <span className="font-semibold text-gray-900">{checkedOutGuests.length}</span>
+                  </div>
+               </div>
+               
+               <div className="rounded-md border">
+                  <Table>
+                     <TableHeader className="bg-gray-50">
+                        <TableRow>
+                           <TableHead>Guest Name</TableHead>
+                           <TableHead>Organization</TableHead>
+                           <TableHead>Checkout Time</TableHead>
+                           <TableHead>Requested By</TableHead>
+                           <TableHead className="text-center">Status</TableHead>
+                           <TableHead className="text-right">Action</TableHead>
+                        </TableRow>
+                     </TableHeader>
+                     <TableBody>
+                        {currentGuests.length === 0 ? (
+                           <TableRow>
+                              <TableCell colSpan={6} className="h-32 text-center text-muted-foreground italic">
+                                 No guests found for tracking
+                              </TableCell>
+                           </TableRow>
+                        ) : (
+                           currentGuests.map((guest) => {
+                              const done = hasSurvey(guest);
+                              return (
+                                 <TableRow key={`${guest.requestId}-${guest.id}`}>
+                                    <TableCell className="font-medium">{guest.name}</TableCell>
+                                    <TableCell>{guest.organization}</TableCell>
+                                    <TableCell className="text-xs text-gray-500">
+                                       {new Date(guest.checkOutTime!).toLocaleString()}
+                                    </TableCell>
+                                    <TableCell className="text-xs">{guest.requestedBy}</TableCell>
+                                    <TableCell className="text-center">
+                                       {done ? (
+                                          <Badge variant="outline" className="bg-green-50 text-green-700 border-green-200">
+                                             <CheckCircle className="mr-1 h-3 w-3" /> Completed
+                                          </Badge>
+                                       ) : (
+                                          <Badge variant="outline" className="bg-yellow-50 text-yellow-700 border-yellow-200">
+                                             Pending
+                                          </Badge>
+                                       )}
+                                    </TableCell>
+                                    <TableCell className="text-right">
+                                       {done && (
+                                          <Button 
+                                            variant="ghost" 
+                                            size="sm" 
+                                            className="text-cyan-600 hover:text-cyan-700 h-8 font-medium"
+                                            onClick={() => {
+                                              // Find if we have the survey in recentSurveys or elsewhere
+                                              const survey = recentSurveys.find(s => s.guestId === guest.id && s.requestId === guest.requestId);
+                                              if (survey) {
+                                                toast({
+                                                  title: `Feedback from ${guest.name}`,
+                                                  description: `Rating: ${survey.rating}/5 - "${survey.comment}"`,
+                                                })
+                                              }
+                                            }}
+                                          >
+                                            View Details
+                                          </Button>
+                                       )}
+                                    </TableCell>
+                                 </TableRow>
+                              );
+                           })
+                        )}
+                     </TableBody>
+                  </Table>
+               </div>
+
+               {totalPages > 1 && (
+                  <div className="mt-4 flex items-center justify-between border-t pt-4">
+                     <div className="text-sm text-gray-600">
+                        Page {currentPage} of {totalPages}
+                     </div>
+                     <div className="flex gap-2">
+                        <Button
+                           size="sm"
+                           variant="outline"
+                           onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
+                           disabled={currentPage === 1}
+                        >
+                           <ChevronLeft className="size-4" />
+                        </Button>
+                        <Button
+                           size="sm"
+                           variant="outline"
+                           onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
+                           disabled={currentPage === totalPages}
+                        >
+                           <ChevronRight className="size-4" />
+                        </Button>
+                     </div>
+                  </div>
+               )}
+            </Card>
+          </div>
+        ) : submitted ? (
           <Card className="p-12 text-center">
             <CheckCircle className="mx-auto mb-4 size-16 text-green-600" />
             <h2 className="mb-2 text-2xl font-bold text-gray-900">Thank You!</h2>
@@ -259,15 +370,6 @@ export default function SurveyPage() {
                         </button>
                       ))}
                     </div>
-                    {rating > 0 && (
-                      <p className="mt-2 text-sm font-medium text-gray-700">
-                        {rating === 1 && "Poor"}
-                        {rating === 2 && "Fair"}
-                        {rating === 3 && "Good"}
-                        {rating === 4 && "Very Good"}
-                        {rating === 5 && "Excellent"}
-                      </p>
-                    )}
                   </div>
 
                   <div>
@@ -278,14 +380,11 @@ export default function SurveyPage() {
                       id="comment"
                       value={comment}
                       onChange={(e) => setComment(e.target.value)}
-                      placeholder="Tell us about your visit, what went well, and what could be improved..."
+                      placeholder="Tell us about your visit..."
                       rows={6}
                       required
                       className="resize-none"
                     />
-                    <p className="mt-1 text-xs text-gray-500">
-                      Your feedback helps us improve our services. Minimum 10 characters.
-                    </p>
                   </div>
 
                   <Button type="submit" className="w-full bg-blue-600 hover:bg-blue-700" size="lg">

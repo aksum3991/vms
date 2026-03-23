@@ -301,6 +301,7 @@ model AuditLog {
 enum Status {
   draft
   submitted
+  host_pending
   approver1_pending
   approver1_approved
   approver1_rejected

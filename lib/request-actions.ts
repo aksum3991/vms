@@ -3,6 +3,7 @@
 import db from "./db";
 import { tenantDb } from "./db-tenant";
 import { requireTenantSession } from "./tenant-context";
+import { getRequestById, triggerHostVerificationNotifications, triggerHostDenialNotifications } from "./actions";
 
 /**
  * Update request schedule (fromDate and toDate only).
@@ -224,5 +225,174 @@ export async function withdrawRequest(
   } catch (error) {
     console.error("[withdrawRequest] Error:", error);
     return { success: false, error: "Withdrawal failed" };
+  }
+}
+
+/**
+ * Verify a host_pending request (Public Registration Workflow).
+ * 
+ * Security: Requires requester (host) to own the request (or be admin)
+ * Validation: Only host_pending requests
+ * Race-safe: Uses raw SQL with NOT EXISTS subquery
+ */
+export async function verifyHostRequest(
+  requestId: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { tenantId, session } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+
+    return await tdb.$transaction(async (tx) => {
+      const request = await tx.request.findFirst({
+        where: { id: requestId, tenantId }
+      });
+
+      if (!request) {
+        return { success: false, error: "Request not found" };
+      }
+
+      if (request.requestedById !== session.userId && session.role !== "admin") {
+        return { success: false, error: "Unauthorized: You can only verify requests assigned to you." };
+      }
+
+      if ((request.status as string) !== "host_pending") {
+        return { success: false, error: "This request is not pending host verification." };
+      }
+
+      const now = new Date();
+
+      const updateResult = await tx.$executeRaw`
+        UPDATE requests
+        SET 
+          status = 'approver1_pending',
+          "updatedAt" = ${now}
+        WHERE 
+          id = ${requestId}
+          AND "tenantId" = ${tenantId}
+          AND status = 'host_pending'
+      `;
+
+      if (updateResult === 0) {
+        return {
+          success: false,
+          error: "Request status already changed. Please refresh."
+        };
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: session.userId,
+          action: "VERIFY_HOST",
+          entity: "Request",
+          entityId: requestId,
+          details: {
+            verifiedAt: now.toISOString(),
+          },
+          timestamp: now
+        }
+      });
+
+      // Step 6: Trigger notifications
+      const [fullRequest, hostUser] = await Promise.all([
+        getRequestById(requestId),
+        db.user.findUnique({ where: { id: session.userId }, select: { name: true } })
+      ]);
+      
+      if (fullRequest) {
+        await triggerHostVerificationNotifications(fullRequest, hostUser?.name || session.email);
+      }
+
+      return { success: true };
+    });
+  } catch (error) {
+    console.error("[verifyHostRequest] Error:", error);
+    return { success: false, error: "Verification failed" };
+  }
+}
+
+/**
+ * Deny (Withdraw) a host_pending request (Public Registration Workflow).
+ * 
+ * Security: Requires requester (host) to own the request (or be admin)
+ * Validation: Only host_pending requests
+ * Race-safe: Uses raw SQL with NOT EXISTS subquery
+ */
+export async function denyHostRequest(
+  requestId: string,
+  reason: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { tenantId, session } = await requireTenantSession();
+    const tdb = tenantDb(tenantId);
+
+    return await tdb.$transaction(async (tx) => {
+      const request = await tx.request.findFirst({
+        where: { id: requestId, tenantId }
+      });
+
+      if (!request) {
+        return { success: false, error: "Request not found" };
+      }
+
+      if (request.requestedById !== session.userId && session.role !== "admin") {
+        return { success: false, error: "Unauthorized: You can only deny requests assigned to you." };
+      }
+
+      if ((request.status as string) !== "host_pending") {
+        return { success: false, error: "This request is not pending host verification." };
+      }
+
+      const now = new Date();
+
+      const updateResult = await tx.$executeRaw`
+        UPDATE requests
+        SET 
+          status = 'withdrawn',
+          "withdrawnAt" = ${now},
+          "withdrawnById" = ${session.userId},
+          "withdrawalReason" = ${reason},
+          "updatedAt" = ${now}
+        WHERE 
+          id = ${requestId}
+          AND "tenantId" = ${tenantId}
+          AND status = 'host_pending'
+      `;
+
+      if (updateResult === 0) {
+        return {
+          success: false,
+          error: "Request status already changed. Please refresh."
+        };
+      }
+
+      await tx.auditLog.create({
+        data: {
+          userId: session.userId,
+          action: "DENY_HOST_GUEST",
+          entity: "Request",
+          entityId: requestId,
+          details: {
+            reason,
+            deniedAt: now.toISOString(),
+          },
+          timestamp: now
+        }
+      });
+
+      // Step 6: Trigger notifications
+      const [fullRequest, hostUser] = await Promise.all([
+        getRequestById(requestId),
+        db.user.findUnique({ where: { id: session.userId }, select: { name: true } })
+      ]);
+
+      if (fullRequest) {
+        await triggerHostDenialNotifications(fullRequest, hostUser?.name || session.email, reason);
+      }
+
+      return { success: true };
+    });
+  } catch (error) {
+    console.error("[denyHostRequest] Error:", error);
+    return { success: false, error: "Denial failed. Try again." };
   }
 }

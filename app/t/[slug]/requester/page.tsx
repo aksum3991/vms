@@ -8,10 +8,11 @@ import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
-import { Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Users, Calendar, AlertTriangle } from "lucide-react"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Users, Calendar, AlertTriangle, CheckCircle2, XCircle } from "lucide-react"
 import type { Request } from "@/lib/types"
 import { getRequests } from "@/lib/actions"
-import { updateRequestSchedule, withdrawRequest } from "@/lib/request-actions"
+import { updateRequestSchedule, withdrawRequest, verifyHostRequest, denyHostRequest } from "@/lib/request-actions"
 import { useAuth } from "@/lib/auth"
 import { ProtectedRoute } from "@/components/protected-route"
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@/components/ui/table"
@@ -145,12 +146,17 @@ function RequesterContent() {
 
     setIsWithdrawing(true)
 
-    const result = await withdrawRequest(requestToWithdraw.id, withdrawReason.trim())
+    let result;
+    if (requestToWithdraw.status === "host-pending") {
+      result = await denyHostRequest(requestToWithdraw.id, withdrawReason.trim())
+    } else {
+      result = await withdrawRequest(requestToWithdraw.id, withdrawReason.trim())
+    }
     
     setIsWithdrawing(false)
 
     if (result.success) {
-      toast({ title: "Request Withdrawn", description: "The request has been withdrawn successfully." })
+      toast({ title: requestToWithdraw.status === "host-pending" ? "Guest Denied" : "Request Withdrawn", description: "The action was successful." })
       setIsWithdrawOpen(false)
       loadRequests() // Refresh list
     } else {
@@ -160,7 +166,7 @@ function RequesterContent() {
       } else {
         toast({ 
           variant: "destructive", 
-          title: "Cannot withdraw request", 
+          title: "Cannot perform action", 
           description: result.error || "An unexpected error occurred." 
         })
       }
@@ -226,10 +232,34 @@ function RequesterContent() {
     }
   }
 
+  const draftRequests = requests.filter(r => r.status !== "host-pending")
+  const incomingRequests = requests.filter(r => r.status === "host-pending")
+
   const indexOfLastItem = currentPage * itemsPerPage
   const indexOfFirstItem = indexOfLastItem - itemsPerPage
-  const currentRequests = requests.slice(indexOfFirstItem, indexOfLastItem)
-  const totalPages = Math.ceil(requests.length / itemsPerPage)
+  const currentDrafts = draftRequests.slice(indexOfFirstItem, indexOfLastItem)
+  const totalPages = Math.ceil(draftRequests.length / itemsPerPage)
+
+  const [isVerifying, setIsVerifying] = useState(false)
+
+  const handleVerify = async (request: Request) => {
+    setIsVerifying(true)
+    const result = await verifyHostRequest(request.id)
+    setIsVerifying(false)
+
+    if (result.success) {
+      toast({ title: "Guest Verified", description: "The request has been sent to Approver 1." })
+      loadRequests()
+    } else {
+      toast({ variant: "destructive", title: "Cannot verify guest", description: result.error })
+    }
+  }
+
+  const handleDeny = (request: Request) => {
+    setRequestToWithdraw(request)
+    setWithdrawReason("The host does not know this guest.")
+    setIsWithdrawOpen(true)
+  }
 
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
@@ -239,153 +269,246 @@ function RequesterContent() {
           <Button onClick={() => (window.location.href = `/t/${slug}`)}>New Request</Button>
         </div>
 
-        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-start">
-          {requests.length === 0 ? (
-            <div className="col-span-full flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center animate-in fade-in-50">
-              <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
-                <Users className="h-6 w-6 text-blue-600" />
-              </div>
-              <h3 className="mt-4 text-lg font-semibold text-gray-900">No requests found</h3>
-              <p className="mt-2 text-sm text-gray-500">
-                You haven&apos;t made any visit requests yet. Create one to get started.
-              </p>
-              <Button className="mt-6" onClick={() => (window.location.href = `/t/${slug}`)}>
-                Create New Request
-              </Button>
-            </div>
-          ) : (
-            currentRequests.map((request) => (
-              <Card
-                key={request.id}
-                className={`flex flex-col border p-4 transition-all hover:shadow-md cursor-pointer ${
-                  selectedRequest?.id === request.id ? 'border-primary bg-primary/5' : 'bg-white'
-                }`}
-                onClick={() => handleView(request)}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2 mb-1">
-                      <h3 className="font-semibold text-gray-900 truncate">{request.destination}</h3>
-                      {getStatusBadge(request.status)}
-                    </div>
-                    
-                    {request.approvalNumber && (
-                      <p className="mt-1 text-xs font-mono font-bold text-green-600 px-1.5 py-0.5 bg-green-50 rounded w-fit">
-                        {request.approvalNumber}
-                      </p>
-                    )}
-                    
-                    <div className="mt-2 text-sm text-gray-600 space-y-1">
-                      <p className="flex items-center gap-2">
-                        <span className="font-medium text-gray-500 text-xs uppercase tracking-wider">Gate</span>
-                        {request.gate}
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Calendar className="size-3.5 text-gray-400" />
-                        <span className="text-xs">
-                          {new Date(request.fromDate).toLocaleDateString()} - {new Date(request.toDate).toLocaleDateString()}
-                        </span>
-                      </p>
-                      <p className="flex items-center gap-2">
-                         <Users className="size-3.5 text-gray-400" />
-                         <span className="text-xs">{request.guests.length} guest(s)</span>
-                      </p>
-                    </div>
+        <Tabs defaultValue="drafts" className="space-y-6">
+          <TabsList className="bg-white border text-muted-foreground w-full justify-start h-auto p-1 overflow-x-auto max-w-full">
+            <TabsTrigger value="drafts" className="px-6 py-2">
+              My Drafted Visits
+            </TabsTrigger>
+            <TabsTrigger value="incoming" className="px-6 py-2">
+              Incoming Public Guests 
+              {incomingRequests.length > 0 && (
+                <Badge variant="destructive" className="ml-2 bg-red-500">{incomingRequests.length}</Badge>
+              )}
+            </TabsTrigger>
+          </TabsList>
 
-                    {expandedRequests.has(request.id) && (
-                      <div className="mt-3 space-y-2 border-t pt-3 animate-in slide-in-from-top-2">
-                        <p className="text-xs font-semibold text-gray-700">Guest List:</p>
-                        <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
-                          {request.guests.map((guest, index) => (
-                            <div key={guest.id} className="rounded bg-gray-50 p-2 text-sm border">
-                              <p className="font-medium text-xs">
-                                {index + 1}. {guest.name}
-                              </p>
-                              <p className="text-[10px] text-gray-500 truncate">{guest.organization}</p>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+          {/* DRAFTS TAB */}
+          <TabsContent value="drafts" className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-start">
+              {draftRequests.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center bg-white">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
+                    <Users className="h-6 w-6 text-blue-600" />
                   </div>
-
-                  <div className="flex flex-col gap-2 shrink-0 w-[90px]" onClick={(e) => e.stopPropagation()}>
-                    <Button 
-                      size="sm" 
-                      variant="outline" 
-                      className="h-7 text-xs justify-start px-2 bg-white w-full" 
-                      onClick={() => handleView(request)}
-                    >
-                      <Eye className="size-3.5 mr-1" /> Details
-                    </Button>
-                    
-                    <Button 
-                      size="sm" 
-                      variant="ghost" 
-                      className="h-7 text-xs justify-start px-2 text-gray-500 w-full" 
-                      onClick={() => toggleExpand(request.id)}
-                    >
-                      {expandedRequests.has(request.id) ? (
-                        <><ChevronUp className="size-3.5 mr-1" /> Hide</>
-                      ) : (
-                        <><ChevronDown className="size-3.5 mr-1" /> Guests</>
-                      )}
-                    </Button>
-
-                     {/* Edit Schedule Button */}
-                    {request.status !== "approver2-approved" && request.status !== "withdrawn" && (
-                      <Button 
-                        size="sm" 
-                        variant="ghost"
-                        className="h-7 text-xs justify-start px-2 text-gray-500 hover:text-amber-600 w-full"
-                        onClick={() => openEditSchedule(request)}
-                      >
-                        <Calendar className="size-3.5 mr-1" /> Edit
-                      </Button>
-                    )}
-
-                    {/* Withdraw Button */}
-                    {request.status === "approver2-approved" && (
-                      <Button 
-                        size="sm" 
-                        variant="outline"
-                        className="h-7 text-xs justify-start px-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 w-full"
-                        onClick={() => openWithdraw(request)}
-                      >
-                        <AlertTriangle className="size-3.5 mr-1" /> Withdraw
-                      </Button>
-                    )}
-                  </div>
+                  <h3 className="mt-4 text-lg font-semibold text-gray-900">No requests found</h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    You haven&apos;t made any visit requests yet. Create one to get started.
+                  </p>
+                  <Button className="mt-6" onClick={() => (window.location.href = `/t/${slug}`)}>
+                    Create New Request
+                  </Button>
                 </div>
-              </Card>
-            ))
-          )}
-        </div>
+              ) : (
+                currentDrafts.map((request) => (
+                  <Card
+                    key={request.id}
+                    className={`flex flex-col border p-4 transition-all hover:shadow-md cursor-pointer ${
+                      selectedRequest?.id === request.id ? 'border-primary bg-primary/5' : 'bg-white'
+                    }`}
+                    onClick={() => handleView(request)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-900 truncate">{request.destination}</h3>
+                          {getStatusBadge(request.status)}
+                        </div>
+                        
+                        {request.approvalNumber && (
+                          <p className="mt-1 text-xs font-mono font-bold text-green-600 px-1.5 py-0.5 bg-green-50 rounded w-fit">
+                            {request.approvalNumber}
+                          </p>
+                        )}
+                        
+                        <div className="mt-2 text-sm text-gray-600 space-y-1">
+                          <p className="flex items-center gap-2">
+                            <span className="font-medium text-gray-500 text-xs uppercase tracking-wider">Gate</span>
+                            {request.gate}
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Calendar className="size-3.5 text-gray-400" />
+                            <span className="text-xs">
+                              {new Date(request.fromDate).toLocaleDateString()} - {new Date(request.toDate).toLocaleDateString()}
+                            </span>
+                          </p>
+                          <p className="flex items-center gap-2">
+                            <Users className="size-3.5 text-gray-400" />
+                            <span className="text-xs">{request.guests.length} guest(s)</span>
+                          </p>
+                        </div>
 
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="mt-8 flex items-center justify-between">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-            >
-              <ChevronLeft className="mr-1 size-4" /> Previous
-            </Button>
-            <span className="text-sm font-medium text-gray-700">
-              Page {currentPage} of {totalPages}
-            </span>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-            >
-              Next <ChevronRight className="ml-1 size-4" />
-            </Button>
-          </div>
-        )}
+                        {expandedRequests.has(request.id) && (
+                          <div className="mt-3 space-y-2 border-t pt-3 animate-in slide-in-from-top-2">
+                            <p className="text-xs font-semibold text-gray-700">Guest List:</p>
+                            <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
+                              {request.guests.map((guest, index) => (
+                                <div key={guest.id} className="rounded bg-gray-50 p-2 text-sm border">
+                                  <p className="font-medium text-xs">
+                                    {index + 1}. {guest.name}
+                                  </p>
+                                  <p className="text-[10px] text-gray-500 truncate">{guest.organization}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="flex flex-col gap-2 shrink-0 w-[90px]" onClick={(e) => e.stopPropagation()}>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 text-xs justify-start px-2 bg-white w-full" 
+                          onClick={() => handleView(request)}
+                        >
+                          <Eye className="size-3.5 mr-1" /> Details
+                        </Button>
+                        
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-7 text-xs justify-start px-2 text-gray-500 w-full" 
+                          onClick={() => toggleExpand(request.id)}
+                        >
+                          {expandedRequests.has(request.id) ? (
+                            <><ChevronUp className="size-3.5 mr-1" /> Hide</>
+                          ) : (
+                            <><ChevronDown className="size-3.5 mr-1" /> Guests</>
+                          )}
+                        </Button>
+
+                        {/* Edit Schedule Button */}
+                        {request.status !== "approver2-approved" && request.status !== "withdrawn" && (
+                          <Button 
+                            size="sm" 
+                            variant="ghost"
+                            className="h-7 text-xs justify-start px-2 text-gray-500 hover:text-amber-600 w-full"
+                            onClick={() => openEditSchedule(request)}
+                          >
+                            <Calendar className="size-3.5 mr-1" /> Edit
+                          </Button>
+                        )}
+
+                        {/* Withdraw Button */}
+                        {request.status === "approver2-approved" && (
+                          <Button 
+                            size="sm" 
+                            variant="outline"
+                            className="h-7 text-xs justify-start px-2 text-red-600 border-red-200 hover:bg-red-50 hover:text-red-700 w-full"
+                            onClick={() => openWithdraw(request)}
+                          >
+                            <AlertTriangle className="size-3.5 mr-1" /> Withdraw
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-8 flex items-center justify-between">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="mr-1 size-4" /> Previous
+                </Button>
+                <span className="text-sm font-medium text-gray-700">
+                  Page {currentPage} of {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next <ChevronRight className="ml-1 size-4" />
+                </Button>
+              </div>
+            )}
+          </TabsContent>
+
+          {/* INCOMING PUBLIC GUESTS TAB */}
+          <TabsContent value="incoming" className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-start">
+              {incomingRequests.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center bg-white">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-green-50">
+                    <CheckCircle2 className="h-6 w-6 text-green-600" />
+                  </div>
+                  <h3 className="mt-4 text-lg font-semibold text-gray-900">You're all caught up!</h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    There are no new public guest requests waiting for your verification.
+                  </p>
+                </div>
+              ) : (
+                incomingRequests.map((request) => (
+                  <Card
+                    key={request.id}
+                    className="flex flex-col border border-orange-200 bg-orange-50/30 p-4 transition-all hover:shadow-md cursor-pointer"
+                    onClick={() => handleView(request)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 mb-1">
+                          <Badge variant="destructive" className="bg-orange-500">Awaiting Your Verification</Badge>
+                        </div>
+                        
+                        <div className="mt-2 text-sm text-gray-900 space-y-1">
+                          <p className="font-bold">{request.guests[0]?.name} <span className="font-normal text-muted-foreground">({request.guests[0]?.organization})</span></p>
+                          <p className="flex items-center gap-2 text-gray-600 mt-2">
+                            <Calendar className="size-3.5 text-gray-400" />
+                            <span className="text-xs">
+                              {new Date(request.fromDate).toLocaleDateString()} - {new Date(request.toDate).toLocaleDateString()}
+                            </span>
+                          </p>
+                        </div>
+                        
+                        <p className="mt-3 text-xs text-gray-700 bg-white p-2 rounded border break-words">
+                          <span className="font-semibold">Purpose:</span> {request.purpose}
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col gap-2 shrink-0 w-[90px]" onClick={(e) => e.stopPropagation()}>
+                        <Button 
+                          size="sm" 
+                          className="h-8 text-xs justify-start px-2 bg-green-600 hover:bg-green-700 text-white w-full"
+                          disabled={isVerifying}
+                          onClick={() => handleVerify(request)}
+                        >
+                          <CheckCircle2 className="size-3.5 mr-1" /> Verify
+                        </Button>
+                        
+                        <Button 
+                          size="sm" 
+                          variant="outline"
+                          className="h-8 text-xs justify-start px-2 text-red-600 border-red-200 hover:bg-red-50 w-full"
+                          onClick={() => handleDeny(request)}
+                        >
+                          <XCircle className="size-3.5 mr-1" /> Deny
+                        </Button>
+
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-7 text-xs justify-start px-2 text-gray-500 w-full mt-2" 
+                          onClick={() => handleView(request)}
+                        >
+                          <Eye className="size-3.5 mr-1" /> Details
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
 
         <Dialog open={selectedRequest !== null} onOpenChange={() => setSelectedRequest(null)}>
           <DialogContent className="max-w-2xl w-[95vw] max-h-[90vh] overflow-hidden p-0 flex flex-col">
@@ -452,27 +575,56 @@ function RequesterContent() {
                    <Label className="mb-2 block text-xs text-muted-foreground uppercase tracking-wider">
                       Guest List ({selectedRequest.guests.length})
                    </Label>
-                   <div className="rounded-lg border overflow-hidden">
-                      <Table>
-                        <TableHeader className="bg-gray-50">
-                          <TableRow>
-                            <TableHead>Name</TableHead>
-                            <TableHead>Organization</TableHead>
-                            <TableHead>Status</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {selectedRequest.guests.map((guest) => (
-                            <TableRow key={guest.id}>
-                              <TableCell className="font-medium">{guest.name}</TableCell>
-                              <TableCell>{guest.organization}</TableCell>
-                              <TableCell>
-                                {getGuestStatusBadge(getGuestStatus(selectedRequest.status, selectedRequest.approvalNumber))}
-                              </TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                   <div className="space-y-4">
+                     {selectedRequest.guests.map((guest, index) => (
+                       <div key={guest.id} className="rounded-lg border bg-white shadow-sm p-4">
+                         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2 mb-3 border-b pb-3">
+                           <div>
+                             <h4 className="font-semibold text-gray-900 flex items-center gap-2">
+                               {index + 1}. {guest.name}
+                             </h4>
+                             <p className="text-sm text-gray-500">{guest.organization}</p>
+                           </div>
+                           <div className="shrink-0 self-start">
+                             {getGuestStatusBadge(getGuestStatus(selectedRequest.status, selectedRequest.approvalNumber))}
+                           </div>
+                         </div>
+                         
+                         <div className="grid gap-4 sm:grid-cols-2 text-sm">
+                           <div>
+                             <p className="font-medium text-gray-700 mb-1 text-xs uppercase tracking-wider">Contact Info</p>
+                             {guest.email ? (
+                               <p className="text-gray-600 truncate"><span className="text-gray-400 mr-1">Email:</span> {guest.email}</p>
+                             ) : (
+                               <p className="text-gray-400 italic">No email provided</p>
+                             )}
+                             {guest.phone ? (
+                               <p className="text-gray-600 truncate mt-0.5"><span className="text-gray-400 mr-1">Phone:</span> {guest.phone}</p>
+                             ) : (
+                               <p className="text-gray-400 italic mt-0.5">No phone provided</p>
+                             )}
+                           </div>
+                           
+                           <div>
+                             <p className="font-medium text-gray-700 mb-1 text-xs uppercase tracking-wider">Device Details</p>
+                             <ul className="text-gray-600 space-y-0.5">
+                               {guest.laptop || guest.mobile || guest.flash || guest.otherDevice ? (
+                                 <>
+                                   {guest.laptop && <li>• Laptop</li>}
+                                   {guest.mobile && <li>• Mobile Device</li>}
+                                   {guest.flash && <li>• Flash Drive</li>}
+                                   {guest.otherDevice && (
+                                     <li>• Other: <span className="italic">{guest.otherDeviceDescription || "Specified"}</span></li>
+                                   )}
+                                 </>
+                               ) : (
+                                 <li className="text-gray-400 italic">No devices declared</li>
+                               )}
+                             </ul>
+                           </div>
+                         </div>
+                       </div>
+                     ))}
                    </div>
                 </div>
 

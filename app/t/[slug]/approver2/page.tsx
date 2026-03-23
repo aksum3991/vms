@@ -675,70 +675,73 @@ function Approver2PageContent() {
                                   </div>
                                 </div>
                               ) : (
-                                <div className="rounded-lg border bg-gray-50 p-4">
-                                  <h4 className="mb-3 font-semibold text-gray-800">Guests Details</h4>
-                                  <Table className="w-full">
-                                    <TableHeader>
-                                      <TableRow>
-                                        <TableHead className="w-[50px]">
-                                          <Checkbox 
-                                            checked={areAllGuestsSelected(request.id, request.guests)}
-                                            onCheckedChange={(checked) => handleSelectAllGuests(request.id, request.guests, checked as boolean)}
-                                            disabled={request.guests.filter(g => (g.approver1Status === "approved" || g.approver1Status === "rejected" || g.approver1Status === "blacklisted") && !g.approver2Status).length === 0}
-                                          />
-                                        </TableHead>
-                                        <TableHead>Guest</TableHead>
-                                        <TableHead>Organization</TableHead>
-                                        <TableHead>Email</TableHead>
-                                        <TableHead>Status</TableHead>
-                                        <TableHead>ID Photo</TableHead>
-                                        <TableHead>Devices</TableHead>
-                                      </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                      {request.guests
-                                        .filter(guest => (guest.approver1Status === "approved" || guest.approver1Status === "rejected" || guest.approver1Status === "blacklisted") && !guest.approver2Status) // Show guests processed by Approver 1 (approved, rejected, or blacklisted) but not yet processed by Approver 2
-                                        .map((guest) => (
-                                        <TableRow key={guest.id}>
+                                  <div className="rounded-lg border bg-gray-50 p-4">
+                                    <h4 className="mb-3 font-semibold text-gray-800">Guests Details</h4>
+                                    <Table className="w-full">
+                                      <TableHeader>
+                                        <TableRow>
+                                          <TableHead className="w-[50px]">
+                                            <Checkbox 
+                                              checked={areAllGuestsSelected(request.id, request.guests)}
+                                              onCheckedChange={(checked) => handleSelectAllGuests(request.id, request.guests, checked as boolean)}
+                                              disabled={request.guests.filter(g => (g.approver1Status === "approved" || g.approver1Status === "rejected" || g.approver1Status === "blacklisted") && !g.approver2Status).length === 0}
+                                            />
+                                          </TableHead>
+                                          <TableHead>Guest</TableHead>
+                                          <TableHead>Organization</TableHead>
+                                          <TableHead>Contact Info</TableHead>
+                                          <TableHead>Status</TableHead>
+                                          <TableHead>ID Photo</TableHead>
+                                          <TableHead>Devices</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {request.guests
+                                          .filter(guest => (guest.approver1Status === "approved" || guest.approver1Status === "rejected" || guest.approver1Status === "blacklisted") && !guest.approver2Status) // Show guests processed by Approver 1 but not yet processed by Approver 2
+                                          .map((guest) => (
+                                          <TableRow key={guest.id}>
                                             <TableCell>
                                               <Checkbox 
                                                 checked={isGuestSelected(request.id, guest.id)}
                                                 onCheckedChange={(checked) => handleSelectGuest(request.id, guest.id, checked as boolean)}
                                               />
                                             </TableCell>
-                                            <TableCell className="font-medium">{guest.name}</TableCell>
-                                            <TableCell>{guest.organization}</TableCell>
-                                            <TableCell>{guest.email || "-"}</TableCell>
-                                          <TableCell>{getGuestStatusBadge(guest.approver2Status || guest.approver1Status)}</TableCell>
-                                          <TableCell>
-                                            {guest.idPhotoUrl ? (
-                                              <Button size="sm" variant="link" onClick={() => setViewingIdPhoto({ url: guest.idPhotoUrl!, guestName: guest.name })}>
-                                                <User className="mr-1 size-4" /> View ID
-                                              </Button>
-                                            ) : (
-                                              <span className="text-xs text-gray-500">N/A</span>
-                                            )}
-                                          </TableCell>
-                                          <TableCell className="max-w-xs truncate text-xs text-gray-600">
-                                             {[
-                                                guest.laptop && "Laptop",
-                                                guest.mobile && "Mobile",
-                                                guest.flash && "Flash Drive",
-                                                guest.otherDevice && `Other (${guest.otherDeviceDescription})`
-                                            ].filter(Boolean).join(", ") || "—"}
-                                          </TableCell>
-                                        </TableRow>
-                                      ))}
-                                      {request.guests.filter(guest => (guest.approver1Status === "approved" || guest.approver1Status === "rejected" || guest.approver1Status === "blacklisted") && !guest.approver2Status).length === 0 && (
-                                        <TableRow>
-                                          <TableCell colSpan={7} className="text-center text-gray-500 py-4">
-                                            All guests have been processed
-                                          </TableCell>
-                                        </TableRow>
-                                      )}
-                                    </TableBody>
-                                  </Table>
-                                </div>
+                                            <TableCell className="font-medium text-sm">{guest.name}</TableCell>
+                                            <TableCell className="text-sm">{guest.organization}</TableCell>
+                                            <TableCell className="text-xs">
+                                              <p>{guest.email || "N/A"}</p>
+                                              <p className="text-gray-500">{guest.phone || "N/A"}</p>
+                                            </TableCell>
+                                            <TableCell>{getGuestStatusBadge(guest.approver2Status || guest.approver1Status)}</TableCell>
+                                            <TableCell>
+                                              {guest.idPhotoUrl ? (
+                                                <Button size="sm" variant="link" className="p-0 h-auto" onClick={() => setViewingIdPhoto({ url: guest.idPhotoUrl!, guestName: guest.name })}>
+                                                  <User className="mr-1 size-3" /> View ID
+                                                </Button>
+                                              ) : (
+                                                <span className="text-[10px] text-gray-500">N/A</span>
+                                              )}
+                                            </TableCell>
+                                            <TableCell className="max-w-[150px] truncate text-[10px] text-gray-600">
+                                              {[
+                                                  guest.laptop && "Laptop",
+                                                  guest.mobile && "Mobile",
+                                                  guest.flash && "Flash Drive",
+                                                  guest.otherDevice && `Other (${guest.otherDeviceDescription})`
+                                              ].filter(Boolean).join(", ") || "—"}
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                        {request.guests.filter(guest => (guest.approver1Status === "approved" || guest.approver1Status === "rejected" || guest.approver1Status === "blacklisted") && !guest.approver2Status).length === 0 && (
+                                          <TableRow>
+                                            <TableCell colSpan={7} className="text-center text-gray-500 py-4 text-sm">
+                                              All approved guests have been processed
+                                            </TableCell>
+                                          </TableRow>
+                                        )}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
                               )}
                               </TableCell>
                             </TableRow>

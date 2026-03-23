@@ -33,6 +33,7 @@ export interface Request {
   status:
     | "draft"
     | "submitted"
+    | "host-pending"
     | "approver1-pending"
     | "approver1-approved"
     | "approver1-rejected"

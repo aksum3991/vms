@@ -439,7 +439,7 @@ function ReceptionPageContent() {
                               </Badge>
                             )}
                             {guest.otherDevice && (
-                              <Badge variant="secondary" className="text-xs">
+                              <Badge variant="secondary" className="text-xs" title={guest.otherDeviceDescription}>
                                 O
                               </Badge>
                             )}

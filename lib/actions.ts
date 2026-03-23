@@ -47,7 +47,9 @@ function mapRowToRequest(row: any, guests: Guest[]): Request {
   return {
     id: row.id,
     approvalNumber: row.approvalNumber,
-    requestedBy: row.requestedBy?.name || row.requestedByEmail,
+    requestedBy: row.requestedBy?.email === "public-portal@vms.system" 
+      ? row.requestedByEmail // Store of Guest Name for public portal
+      : (row.requestedBy?.name || row.requestedByEmail),
     requestedById: row.requestedById,
     requestedByEmail: row.requestedByEmail,
     destination: row.destination,
@@ -1152,6 +1154,35 @@ export async function triggerCheckOutNotification(
     }
   } catch (error) {
     console.error("[actions] Error triggering check-out notification:", error);
+  }
+}
+
+export async function triggerHostVerificationNotifications(
+  request: Request,
+  hostName: string,
+): Promise<void> {
+  try {
+    const settings = await getSettings();
+    if (settings.emailNotifications || settings.smsNotifications) {
+      await notificationService.sendHostVerificationNotification(request, hostName, settings);
+    }
+  } catch (error) {
+    console.error("[actions] Error triggering host verification notifications:", error);
+  }
+}
+
+export async function triggerHostDenialNotifications(
+  request: Request,
+  hostName: string,
+  reason: string,
+): Promise<void> {
+  try {
+    const settings = await getSettings();
+    if (settings.emailNotifications || settings.smsNotifications) {
+      await notificationService.sendHostDenialNotification(request, hostName, reason, settings);
+    }
+  } catch (error) {
+    console.error("[actions] Error triggering host denial notifications:", error);
   }
 }
 

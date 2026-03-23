@@ -258,6 +258,77 @@ export const notificationService = {
   }): Promise<void> {
     await emitEmergencyPanicNow(input);
   },
+
+  async sendHostVerificationNotification(
+    request: Request,
+    hostName: string,
+    settings?: Settings,
+  ): Promise<void> {
+    const effectiveSettings =
+      settings ??
+      (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
+    
+    const message = `Your visit request to ${request.destination} has been verified by ${hostName} and is now under security review. You will receive another update once final approval is granted.`;
+    const emailSubject = `Visit Request Verified - ${request.destination}`;
+
+    const emailDispatches: { to: string; subject?: string; body: string }[] = [];
+    const smsDispatches: { to: string; body: string }[] = [];
+
+    for (const guest of request.guests) {
+      if (effectiveSettings?.emailNotifications && guest.email) {
+        emailDispatches.push({ to: guest.email, subject: emailSubject, body: `Dear ${guest.name}, ${message}` });
+      }
+      if (effectiveSettings?.smsNotifications && guest.phone) {
+        smsDispatches.push({ to: guest.phone, body: `Dear ${guest.name}, ${message}` });
+      }
+    }
+
+    await createUserNotificationAndDispatch({
+      userId: request.requestedById,
+      type: "host_verified",
+      message: `Request verified by ${hostName}.`,
+      requestId: request.id,
+      email: emailDispatches,
+      sms: smsDispatches,
+      tenantId: request.tenantId,
+    });
+  },
+
+  async sendHostDenialNotification(
+    request: Request,
+    hostName: string,
+    reason: string,
+    settings?: Settings,
+  ): Promise<void> {
+    const effectiveSettings =
+      settings ??
+      (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
+    
+    const message = `Your visit request to ${request.destination} has been declined by ${hostName}.${reason ? `\n\nReason: ${reason}` : ""}`;
+    const emailSubject = `Visit Request Declined - ${request.destination}`;
+
+    const emailDispatches: { to: string; subject?: string; body: string }[] = [];
+    const smsDispatches: { to: string; body: string }[] = [];
+
+    for (const guest of request.guests) {
+      if (effectiveSettings?.emailNotifications && guest.email) {
+        emailDispatches.push({ to: guest.email, subject: emailSubject, body: `Dear ${guest.name}, ${message}` });
+      }
+      if (effectiveSettings?.smsNotifications && guest.phone) {
+        smsDispatches.push({ to: guest.phone, body: `Dear ${guest.name}, ${message}` });
+      }
+    }
+
+    await createUserNotificationAndDispatch({
+      userId: request.requestedById,
+      type: "host_denied",
+      message: `Request declined by ${hostName}.`,
+      requestId: request.id,
+      email: emailDispatches,
+      sms: smsDispatches,
+      tenantId: request.tenantId,
+    });
+  },
 };
 
 export default notificationService;

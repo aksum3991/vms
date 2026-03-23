@@ -718,7 +718,7 @@ function Approver1PageContent() {
                                           </TableHead>
                                           <TableHead>Guest</TableHead>
                                           <TableHead>Organization</TableHead>
-                                          <TableHead>Email</TableHead>
+                                          <TableHead>Contact Info</TableHead>
                                           <TableHead>Status</TableHead>
                                           <TableHead>ID Photo</TableHead>
                                           <TableHead>Devices</TableHead>
@@ -735,20 +735,23 @@ function Approver1PageContent() {
                                                 onCheckedChange={(checked) => handleSelectGuest(request.id, guest.id, checked as boolean)}
                                               />
                                             </TableCell>
-                                            <TableCell className="font-medium">{guest.name}</TableCell>
-                                            <TableCell>{guest.organization}</TableCell>
-                                            <TableCell>{guest.email || "-"}</TableCell>
+                                            <TableCell className="font-medium text-sm">{guest.name}</TableCell>
+                                            <TableCell className="text-sm">{guest.organization}</TableCell>
+                                            <TableCell className="text-xs">
+                                              <p>{guest.email || "N/A"}</p>
+                                              <p className="text-gray-500">{guest.phone || "N/A"}</p>
+                                            </TableCell>
                                             <TableCell>{getGuestStatusBadge(guest.approver1Status)}</TableCell>
                                             <TableCell>
                                               {guest.idPhotoUrl ? (
-                                                <Button size="sm" variant="link" onClick={() => setViewingIdPhoto({ url: guest.idPhotoUrl!, guestName: guest.name })}>
-                                                  <User className="mr-1 size-4" /> View ID
+                                                <Button size="sm" variant="link" className="p-0 h-auto" onClick={() => setViewingIdPhoto({ url: guest.idPhotoUrl!, guestName: guest.name })}>
+                                                  <User className="mr-1 size-3" /> View ID
                                                 </Button>
                                               ) : (
-                                                <span className="text-xs text-gray-500">N/A</span>
+                                                <span className="text-[10px] text-gray-500">N/A</span>
                                               )}
                                             </TableCell>
-                                            <TableCell className="max-w-xs truncate text-xs text-gray-600">
+                                            <TableCell className="max-w-[150px] truncate text-[10px] text-gray-600">
                                               {[
                                                   guest.laptop && "Laptop",
                                                   guest.mobile && "Mobile",
@@ -760,7 +763,7 @@ function Approver1PageContent() {
                                         ))}
                                         {request.guests.filter(guest => !guest.approver1Status).length === 0 && (
                                           <TableRow>
-                                            <TableCell colSpan={7} className="text-center text-gray-500 py-4">
+                                            <TableCell colSpan={7} className="text-center text-gray-500 py-4 text-sm">
                                               All guests have been processed
                                             </TableCell>
                                           </TableRow>

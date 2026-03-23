@@ -35,8 +35,8 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("storage", handleStorageChange)
   }, [])
 
-  if (pathname === "/login" || pathname === "/post-login") {
-    return <>{children}</>
+  if (pathname === "/login" || pathname === "/post-login" || pathname.startsWith("/public/")) {
+    return <div className="min-h-screen bg-gray-50">{children}</div>
   }
 
   const isSuperAdminPath = pathname.startsWith('/superadmin') && user?.role === 'superadmin'
