@@ -229,6 +229,18 @@ function RequestSubmissionPageContent() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    // Ensure dates are chronologically valid
+    const today = new Date().toISOString().split("T")[0];
+    if (formData.fromDate < today) {
+      toast({ variant: "destructive", title: "Invalid Date", description: "From Date cannot be in the past." });
+      return;
+    }
+    if (formData.toDate < formData.fromDate) {
+      toast({ variant: "destructive", title: "Invalid Date Range", description: "To Date cannot be earlier than From Date." });
+      return;
+    }
+
     const request = { ...formData, guests, status: "submitted" as const };
     try {
       await saveRequest(request);
@@ -322,6 +334,7 @@ function RequestSubmissionPageContent() {
                 <Input
                   id="fromDate"
                   type="date"
+                  min={new Date().toISOString().split("T")[0]}
                   value={formData.fromDate}
                   onChange={(e) =>
                     setFormData({ ...formData, fromDate: e.target.value })
@@ -336,6 +349,7 @@ function RequestSubmissionPageContent() {
                 <Input
                   id="toDate"
                   type="date"
+                  min={formData.fromDate || new Date().toISOString().split("T")[0]}
                   value={formData.toDate}
                   onChange={(e) =>
                     setFormData({ ...formData, toDate: e.target.value })
