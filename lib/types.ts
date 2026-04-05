@@ -84,6 +84,7 @@ export interface User {
   tenantId?: string | null;
   tenantSlug?: string | null;
   language?: string;
+  phone?: string;
   createdAt: string;
 }
 

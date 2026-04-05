@@ -9,6 +9,8 @@ export interface ServerSession {
   role:       string
   tenantId:   string | null   // null for superadmin
   tenantSlug: string | null   // null for superadmin
+  language:   string
+  phone:      string | null
 }
 
 /**
@@ -39,6 +41,8 @@ export async function getServerSession(): Promise<ServerSession | null> {
         active:   true,
         tenantId: true,
         tenant:   { select: { slug: true } },
+        language: true,
+        phone:    true,
       },
     })
 
@@ -53,6 +57,8 @@ export async function getServerSession(): Promise<ServerSession | null> {
       role:       user.role,
       tenantId:   user.tenantId,
       tenantSlug: user.tenant?.slug ?? null,
+      language:   user.language || "en",
+      phone:      user.phone || null,
     }
   } catch (error) {
     console.error("[auth-server] Session verification failed:", error)

@@ -11,14 +11,18 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { CheckCircle2, Loader2, Building2, User } from "lucide-react"
 import { submitSelfRegistration, getPublicTenantGates } from "@/lib/public-actions"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Plus, Trash2, Download, FileSpreadsheet, Image as ImageIcon, Users } from "lucide-react"
+import * as XLSX from "xlsx"
+import Image from "next/image"
 
 // Reusing the modern focus styles from the main app
 const focusStyles = "bg-white focus-visible:ring-cyan-600 focus-visible:border-cyan-500 transition-all duration-200"
@@ -35,19 +39,22 @@ export default function PublicRegistrationPage() {
   const [statusAssigned, setStatusAssigned] = useState("")
   const [availableGates, setAvailableGates] = useState<string[]>([])
 
-  const [guestData, setGuestData] = useState({
-    name: "",
-    organization: "",
-    email: "",
-    phone: "",
-    laptop: false,
-    mobile: false,
-    flash: false,
-    otherDevice: false,
-    otherDeviceDescription: "",
-    idPhotoUrl: "",
-  })
-
+  const [guests, setGuests] = useState([
+    {
+      name: "",
+      organization: "",
+      email: "",
+      phone: "",
+      laptop: false,
+      mobile: false,
+      flash: false,
+      otherDevice: false,
+      otherDeviceDescription: "",
+      idPhotoUrl: "",
+      preferredLanguage: "en",
+    },
+  ])
+  
   const [requestData, setRequestData] = useState({
     destination: "",
     gate: "", 
@@ -72,6 +79,97 @@ export default function PublicRegistrationPage() {
     fetchGates()
   }, [slug])
 
+  const addGuest = () => {
+    setGuests([
+      ...guests,
+      {
+        name: "",
+        organization: "",
+        email: "",
+        phone: "",
+        laptop: false,
+        mobile: false,
+        flash: false,
+        otherDevice: false,
+        otherDeviceDescription: "",
+        idPhotoUrl: "",
+        preferredLanguage: "en",
+      },
+    ])
+  }
+
+  const removeGuest = (index: number) => {
+    if (guests.length > 1) {
+      setGuests(guests.filter((_, i) => i !== index))
+    }
+  }
+
+  const updateGuest = (index: number, field: string, value: any) => {
+    const newGuests = guests.map((g, i) =>
+      i === index ? { ...g, [field]: value } : g
+    )
+    setGuests(newGuests)
+  }
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
+    if (e.target.files && e.target.files[0]) {
+      const reader = new FileReader()
+      reader.onloadend = () => updateGuest(index, "idPhotoUrl", reader.result as string)
+      reader.readAsDataURL(e.target.files[0])
+    }
+  }
+
+  const handleExportTemplate = () => {
+    const ws = XLSX.utils.json_to_sheet([
+      {
+        "Guest Name (Required)": "John Doe",
+        "Organization (Required)": "Acme Corp",
+        "Email (Optional)": "john@example.com",
+        "Phone (Optional)": "+123456789",
+        "Laptop (Yes/No)": "Yes",
+        "Mobile (Yes/No)": "Yes",
+        "Flash Drive (Yes/No)": "No",
+        "Other Device (Yes/No)": "No",
+        "Other Device Description": "",
+      },
+    ])
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, "Template")
+    XLSX.writeFile(wb, "GuestListTemplate.xlsx")
+  }
+
+  const handleImportExcel = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (evt) => {
+      const wb = XLSX.read(evt.target?.result, { type: "binary" })
+      const data = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]]) as any[]
+      const validGuests = data
+        .map((row) => ({
+          name: row["Guest Name (Required)"] || "",
+          organization: row["Organization (Required)"] || "",
+          email: row["Email (Optional)"] || "",
+          phone: row["Phone (Optional)"] || "",
+          laptop: row["Laptop (Yes/No)"]?.toString().toLowerCase() === "yes",
+          mobile: row["Mobile (Yes/No)"]?.toString().toLowerCase() === "yes",
+          flash: row["Flash Drive (Yes/No)"]?.toString().toLowerCase() === "yes",
+          otherDevice: row["Other Device (Yes/No)"]?.toString().toLowerCase() === "yes",
+          otherDeviceDescription: row["Other Device Description"] || "",
+          idPhotoUrl: "",
+          preferredLanguage: "en",
+        }))
+        .filter((g) => g.name || g.organization)
+
+      if (validGuests.length > 0) {
+        setGuests((prev) => (prev.length === 1 && !prev[0].name ? validGuests : [...prev, ...validGuests]))
+        toast({ title: "Import Successful", description: `Imported ${validGuests.length} guests.` })
+      }
+    }
+    reader.readAsBinaryString(file)
+    e.target.value = ""
+  }
+
   // Date constraints
   const today = new Date().toISOString().split("T")[0]
   const minToDate = requestData.fromDate || today
@@ -90,7 +188,7 @@ export default function PublicRegistrationPage() {
     }
 
     setLoading(true)
-    const result = await submitSelfRegistration(slug, guestData, {
+    const result = await submitSelfRegistration(slug, guests, {
       ...requestData,
       hostEmail: requestData.hostEmail.trim() === "" ? undefined : requestData.hostEmail.trim()
     })
@@ -118,7 +216,7 @@ export default function PublicRegistrationPage() {
           </div>
           <h2 className="text-3xl font-bold text-gray-900 mb-4">Registration Submitted!</h2>
           <p className="text-lg text-gray-600 mb-6">
-            Thank you, <strong>{guestData.name}</strong>. Your visit request has been sent for approval.
+            Thank you, <strong>{guests[0]?.name}{guests.length > 1 ? ` and ${guests.length - 1} others` : ""}</strong>. Your visit request has been sent for approval.
           </p>
           
           <div className="bg-blue-50 text-blue-800 p-4 rounded-lg mb-8 text-sm">
@@ -149,59 +247,102 @@ export default function PublicRegistrationPage() {
         <form onSubmit={handleSubmit}>
           <div className="space-y-8">
             
-            {/* Guest Details Section */}
+            {/* Guest List Section */}
             <Card className="shadow-sm border-0 ring-1 ring-gray-200">
               <CardHeader className="bg-white border-b rounded-t-xl">
-                <CardTitle className="flex items-center gap-2 text-xl text-cyan-700">
-                  <User className="h-5 w-5" /> Your Details
-                </CardTitle>
-                <CardDescription>Personal and contact information.</CardDescription>
+                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div>
+                    <CardTitle className="flex items-center gap-2 text-xl text-cyan-700">
+                      <Users className="h-5 w-5" /> Guest List
+                    </CardTitle>
+                    <CardDescription>Personal and contact information for all visitors.</CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <Button type="button" onClick={handleExportTemplate} variant="outline" size="sm" className="flex-1 sm:flex-none">
+                      <Download className="mr-2 h-4 w-4" /> Template
+                    </Button>
+                    <div className="relative flex-1 sm:flex-none">
+                      <input type="file" accept=".xlsx, .xls" onChange={handleImportExcel} className="absolute inset-0 w-full opacity-0 cursor-pointer" />
+                      <Button type="button" variant="outline" size="sm" className="w-full">
+                        <FileSpreadsheet className="mr-2 h-4 w-4" /> Import
+                      </Button>
+                    </div>
+                    <Button type="button" onClick={addGuest} variant="outline" size="sm" className="flex-1 sm:flex-none bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100">
+                      <Plus className="mr-2 h-4 w-4" /> Add Row
+                    </Button>
+                  </div>
+                </div>
               </CardHeader>
-              <CardContent className="p-6 grid gap-6 sm:grid-cols-2 bg-white rounded-b-xl">
-                <div className="space-y-2">
-                  <Label htmlFor="guestName">Full Name *</Label>
-                  <Input 
-                    id="guestName" 
-                    placeholder="John Doe"
-                    value={guestData.name}
-                    onChange={e => setGuestData({...guestData, name: e.target.value})}
-                    required 
-                    className={focusStyles}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="organization">Organization / Company *</Label>
-                  <Input 
-                    id="organization" 
-                    placeholder="Acme Corp"
-                    value={guestData.organization}
-                    onChange={e => setGuestData({...guestData, organization: e.target.value})}
-                    required 
-                    className={focusStyles}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address *</Label>
-                  <Input 
-                    id="email" 
-                    type="email"
-                    placeholder="john@example.com"
-                    value={guestData.email}
-                    onChange={e => setGuestData({...guestData, email: e.target.value})}
-                    required 
-                    className={focusStyles}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number</Label>
-                  <Input 
-                    id="phone" 
-                    type="tel"
-                    placeholder="+1 234 567 8900"
-                    value={guestData.phone}
-                    onChange={e => setGuestData({...guestData, phone: e.target.value})}
-                    className={focusStyles}
-                  />
+              <CardContent className="p-0 bg-white rounded-b-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader className="bg-gray-50/50">
+                      <TableRow>
+                        <TableHead className="w-[50px] text-center">#</TableHead>
+                        <TableHead className="min-w-[180px]">Name *</TableHead>
+                        <TableHead className="min-w-[180px]">Organization *</TableHead>
+                        <TableHead className="min-w-[180px]">Email & Phone</TableHead>
+                        <TableHead className="w-[80px] text-center">ID Photo</TableHead>
+                        <TableHead className="min-w-[150px]">Devices</TableHead>
+                        <TableHead className="w-[50px]"></TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {guests.map((guest, index) => (
+                        <TableRow key={index} className="hover:bg-gray-50/30 transition-colors">
+                          <TableCell className="text-center font-medium text-gray-500">{index + 1}</TableCell>
+                          <TableCell>
+                            <Input placeholder="Full Name" value={guest.name} onChange={(e) => updateGuest(index, "name", e.target.value)} required className={focusStyles} />
+                          </TableCell>
+                          <TableCell>
+                            <Input placeholder="Company" value={guest.organization} onChange={(e) => updateGuest(index, "organization", e.target.value)} required className={focusStyles} />
+                          </TableCell>
+                          <TableCell className="space-y-1">
+                            <Input type="email" placeholder="Email" value={guest.email} onChange={(e) => updateGuest(index, "email", e.target.value)} required className={`h-8 text-xs ${focusStyles}`} />
+                            <Input placeholder="Phone" value={guest.phone} onChange={(e) => updateGuest(index, "phone", e.target.value)} className={`h-8 text-xs ${focusStyles}`} />
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex justify-center">
+                              <label htmlFor={`idPhoto-${index}`} className="flex h-10 w-10 cursor-pointer items-center justify-center rounded border border-dashed border-gray-300 bg-gray-50 hover:border-cyan-400 hover:bg-cyan-50 transition-all">
+                                {guest.idPhotoUrl ? (
+                                  <div className="relative h-full w-full overflow-hidden rounded">
+                                    <Image src={guest.idPhotoUrl} alt="ID" fill className="object-cover" />
+                                  </div>
+                                ) : (
+                                  <ImageIcon className="h-4 w-4 text-gray-400" />
+                                )}
+                              </label>
+                              <input id={`idPhoto-${index}`} type="file" accept="image/*" onChange={(e) => handleFileUpload(e, index)} className="hidden" />
+                            </div>
+                          </TableCell>
+                          <TableCell>
+                            <div className="flex flex-wrap gap-2">
+                              <div className="flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded border text-[10px]">
+                                <Checkbox id={`laptop-${index}`} checked={guest.laptop} onCheckedChange={(c) => updateGuest(index, "laptop", !!c)} />
+                                <Label htmlFor={`laptop-${index}`} className="cursor-pointer">Laptop</Label>
+                              </div>
+                              <div className="flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded border text-[10px]">
+                                <Checkbox id={`mobile-${index}`} checked={guest.mobile} onCheckedChange={(c) => updateGuest(index, "mobile", !!c)} />
+                                <Label htmlFor={`mobile-${index}`} className="cursor-pointer">Phone</Label>
+                              </div>
+                              <div className="flex items-center gap-1.5 bg-gray-50 px-2 py-1 rounded border text-[10px]">
+                                <Checkbox id={`other-${index}`} checked={guest.otherDevice} onCheckedChange={(c) => updateGuest(index, "otherDevice", !!c)} />
+                                <Label htmlFor={`other-${index}`} className="cursor-pointer">Other</Label>
+                              </div>
+                            </div>
+                            {guest.otherDevice && (
+                              <Input placeholder="Describe..." value={guest.otherDeviceDescription} onChange={(e) => updateGuest(index, "otherDeviceDescription", e.target.value)} className="mt-2 h-7 text-[10px]" required />
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <Button type="button" variant="ghost" size="icon" onClick={() => removeGuest(index)} disabled={guests.length === 1} className="h-8 w-8 text-red-400 hover:text-red-600 hover:bg-red-50">
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               </CardContent>
             </Card>
@@ -304,46 +445,6 @@ export default function PublicRegistrationPage() {
               </CardContent>
             </Card>
 
-            {/* Devices Section */}
-            <Card className="shadow-sm border-0 ring-1 ring-gray-200">
-              <CardHeader className="bg-white border-b rounded-t-xl">
-                <CardTitle className="text-lg text-cyan-700">Devices & Belongings</CardTitle>
-                <CardDescription>Select any devices you plan to bring with you.</CardDescription>
-              </CardHeader>
-              <CardContent className="p-6 bg-white rounded-b-xl">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="flex items-center space-x-2 bg-gray-50 p-3 rounded-lg border">
-                    <Checkbox id="reqLaptop" checked={guestData.laptop} onCheckedChange={(c) => setGuestData({...guestData, laptop: !!c})} />
-                    <Label htmlFor="reqLaptop" className="cursor-pointer">Laptop</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-gray-50 p-3 rounded-lg border">
-                    <Checkbox id="reqMobile" checked={guestData.mobile} onCheckedChange={(c) => setGuestData({...guestData, mobile: !!c})} />
-                    <Label htmlFor="reqMobile" className="cursor-pointer">Mobile</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-gray-50 p-3 rounded-lg border">
-                    <Checkbox id="reqFlash" checked={guestData.flash} onCheckedChange={(c) => setGuestData({...guestData, flash: !!c})} />
-                    <Label htmlFor="reqFlash" className="cursor-pointer">Flash Drive</Label>
-                  </div>
-                  <div className="flex items-center space-x-2 bg-gray-50 p-3 rounded-lg border">
-                    <Checkbox id="reqOther" checked={guestData.otherDevice} onCheckedChange={(c) => setGuestData({...guestData, otherDevice: !!c})} />
-                    <Label htmlFor="reqOther" className="cursor-pointer">Other</Label>
-                  </div>
-                </div>
-                {guestData.otherDevice && (
-                  <div className="mt-4 space-y-2 animate-in fade-in slide-in-from-top-2">
-                    <Label htmlFor="otherDeviceDesc">Describe Other Devices</Label>
-                    <Input 
-                      id="otherDeviceDesc" 
-                      value={guestData.otherDeviceDescription}
-                      onChange={e => setGuestData({...guestData, otherDeviceDescription: e.target.value})}
-                      placeholder="e.g. Camera, Drone"
-                      className={focusStyles}
-                      required
-                    />
-                  </div>
-                )}
-              </CardContent>
-            </Card>
 
             <Button 
               type="submit" 

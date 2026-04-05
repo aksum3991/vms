@@ -837,6 +837,7 @@ export async function getUsers(expectedSlug?: string): Promise<User[]> {
 
 export async function updateMyProfile(data: {
   language: string;
+  phone?: string;
 }): Promise<{ success: boolean; error?: string }> {
   try {
     const { tenantId, session } = await requireTenantSession();
@@ -850,6 +851,7 @@ export async function updateMyProfile(data: {
       where: { id: session.userId, tenantId },
       data: {
         language: data.language,
+        phone: data.phone,
       },
     });
 
@@ -858,7 +860,7 @@ export async function updateMyProfile(data: {
       "UPDATE_PROFILE",
       "User",
       session.userId,
-      { language: data.language },
+      { language: data.language, phone: data.phone },
     );
 
     revalidatePath("/");

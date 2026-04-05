@@ -133,6 +133,20 @@ export const notificationService = {
       }
     }
 
+    // NEW: Add SMS for requester if phone number is available
+    if (effectiveSettings?.smsNotifications && request.requestedById) {
+      const requester = await db.user.findUnique({
+        where: { id: request.requestedById },
+        select: { phone: true, name: true }
+      });
+      if (requester?.phone) {
+        smsDispatches.push({ 
+          to: requester.phone, 
+          body: `Dear ${requester.name}, your visit request has been approved! Approval Number: ${approvalNumber}. Gate: ${request.gate}.`
+        });
+      }
+    }
+
     // In-app notification for requester + outbound dispatches for requester/guests (emit-and-forget)
     await createUserNotificationAndDispatch({
       userId: request.requestedById,

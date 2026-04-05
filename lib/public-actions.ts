@@ -97,7 +97,7 @@ export async function getGuestSurveyInfo(guestId: string, requestId: string) {
 
 export async function submitSelfRegistration(
   slug: string,
-  guestData: {
+  guests: {
     name: string;
     organization: string;
     email: string;
@@ -108,7 +108,8 @@ export async function submitSelfRegistration(
     otherDevice: boolean;
     otherDeviceDescription: string;
     idPhotoUrl: string;
-  },
+    preferredLanguage?: string;
+  }[],
   requestData: {
     destination: string;
     gate: string;
@@ -171,11 +172,11 @@ export async function submitSelfRegistration(
       }
 
       hostUserId = systemUser.id;
-      // We store the guest's name in this field to be used as 'Requested By'
-      hostUserEmail = guestData.name; 
+      // We store the primary guest's name in this field to be used as 'Requested By'
+      hostUserEmail = guests[0]?.name || "Public Visitor"; 
     }
 
-    // Create the Request and Guest atomically using Tenant DB
+    // Create the Request and Guests atomically using Tenant DB
     await (tdb.request as any).create({
       data: {
         requestedById: hostUserId!,
@@ -188,19 +189,11 @@ export async function submitSelfRegistration(
         status: newStatus,
         tenantId: tenant.id,
         guests: {
-          create: {
-            name: guestData.name,
-            organization: guestData.organization,
-            email: guestData.email,
-            phone: guestData.phone,
-            laptop: guestData.laptop,
-            mobile: guestData.mobile,
-            flash: guestData.flash,
-            otherDevice: guestData.otherDevice,
-            otherDeviceDescription: guestData.otherDeviceDescription,
-            idPhotoUrl: guestData.idPhotoUrl,
+          create: guests.map((g) => ({
+            ...g,
             tenantId: tenant.id,
-          },
+            preferredLanguage: g.preferredLanguage || "en",
+          })),
         },
       },
     });

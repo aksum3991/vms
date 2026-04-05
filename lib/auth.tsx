@@ -49,6 +49,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       active: true,
       tenantId: s.tenantId || null,
       tenantSlug: s.tenantSlug || null,
+      language: s.language || "en",
+      phone: s.phone || null,
       createdAt: new Date().toISOString(),
     }
   } else if (status === "unauthenticated" && !localLoading) {

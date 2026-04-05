@@ -14,7 +14,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { useToast } from "@/components/ui/use-toast"
-import { User, Globe } from "lucide-react"
+import { User, Globe, Phone } from "lucide-react"
+import { Input } from "@/components/ui/input"
 
 interface ProfileDialogProps {
   open: boolean
@@ -25,16 +26,17 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
   const { user } = useAuth()
   const { toast } = useToast()
   const [language, setLanguage] = useState(user?.language || "en")
+  const [phone, setPhone] = useState(user?.phone || "")
   const [isSaving, setIsSaving] = useState(false)
 
   const handleSave = async () => {
     setIsSaving(true)
     try {
-      const result = await updateMyProfile({ language })
+      const result = await updateMyProfile({ language, phone })
       if (result.success) {
         toast({
           title: "Profile Updated",
-          description: "Your language preference has been saved.",
+          description: "Your preferences have been saved.",
         })
         onOpenChange(false)
         // Optionally reload to apply language changes if UI translation is implemented
@@ -96,7 +98,25 @@ export function ProfileDialog({ open, onOpenChange }: ProfileDialogProps) {
               <option value="am">Amharic (አማርኛ)</option>
             </select>
             <p className="text-[11px] text-gray-500 italic">
-              * This preference determines the language of the automated notifications you receive.
+              * Language for automated notifications you receive.
+            </p>
+          </div>
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Phone className="size-4 text-gray-500" />
+              <Label htmlFor="phone" className="text-sm font-medium">Phone Number (for SMS)</Label>
+            </div>
+            <Input
+              id="phone"
+              type="tel"
+              placeholder="+251 ..."
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              className="focus:border-cyan-600 focus:ring-cyan-600"
+            />
+            <p className="text-[11px] text-gray-500 italic">
+              * Required to receive approval status via SMS.
             </p>
           </div>
         </div>
