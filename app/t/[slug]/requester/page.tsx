@@ -180,6 +180,8 @@ function RequesterContent() {
 
   const getStatusBadge = (status: string) => {
     switch (status) {
+      case "draft":
+        return <Badge className="bg-slate-100 text-slate-600 border-slate-200">Draft</Badge>
       case "submitted":
         return <Badge className="bg-blue-100 text-blue-700">Submitted</Badge>
       case "approver1-pending":
@@ -237,14 +239,6 @@ function RequesterContent() {
     }
   }
 
-  const draftRequests = requests.filter(r => r.status !== "host-pending")
-  const incomingRequests = requests.filter(r => r.status === "host-pending")
-
-  const indexOfLastItem = currentPage * itemsPerPage
-  const indexOfFirstItem = indexOfLastItem - itemsPerPage
-  const currentDrafts = draftRequests.slice(indexOfFirstItem, indexOfLastItem)
-  const totalPages = Math.ceil(draftRequests.length / itemsPerPage)
-
   const [isVerifying, setIsVerifying] = useState(false)
 
   const handleVerify = async (request: Request) => {
@@ -266,6 +260,18 @@ function RequesterContent() {
     setIsWithdrawOpen(true)
   }
 
+  const activeRequests = requests.filter(r => 
+    ["submitted", "approver1-pending", "approver1-approved", "approver2-pending", "approver2-approved"].includes(r.status)
+  )
+  const draftRequests = requests.filter(r => r.status === "draft")
+  const incomingRequests = requests.filter(r => r.status === "host-pending")
+  const historyRequests = requests.filter(r => ["withdrawn", "approver1-rejected", "approver2-rejected"].includes(r.status))
+
+  const indexOfLastItem = currentPage * itemsPerPage
+  const indexOfFirstItem = indexOfLastItem - itemsPerPage
+  const currentActive = activeRequests.slice(indexOfFirstItem, indexOfLastItem)
+  const totalPages = Math.ceil(activeRequests.length / itemsPerPage)
+
   return (
     <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="mx-auto max-w-7xl">
@@ -274,37 +280,43 @@ function RequesterContent() {
           <Button onClick={() => (window.location.href = `/t/${slug}`)}>New Request</Button>
         </div>
 
-        <Tabs defaultValue="drafts" className="space-y-6">
+        <Tabs defaultValue="active" className="space-y-6">
           <TabsList className="bg-white border text-muted-foreground w-full justify-start h-auto p-1 overflow-x-auto max-w-full">
+            <TabsTrigger value="active" className="px-6 py-2">
+              Active Requests ({activeRequests.length})
+            </TabsTrigger>
             <TabsTrigger value="drafts" className="px-6 py-2">
-              My Drafted Visits
+              My Drafts ({draftRequests.length})
             </TabsTrigger>
             <TabsTrigger value="incoming" className="px-6 py-2">
-              Incoming Public Guests 
+              Incoming Guests 
               {incomingRequests.length > 0 && (
                 <Badge variant="destructive" className="ml-2 bg-red-500">{incomingRequests.length}</Badge>
               )}
             </TabsTrigger>
+            <TabsTrigger value="history" className="px-6 py-2">
+              History ({historyRequests.length})
+            </TabsTrigger>
           </TabsList>
 
-          {/* DRAFTS TAB */}
-          <TabsContent value="drafts" className="space-y-6">
+          {/* ACTIVE TAB */}
+          <TabsContent value="active" className="space-y-6">
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-start">
-              {draftRequests.length === 0 ? (
+              {activeRequests.length === 0 ? (
                 <div className="col-span-full flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center bg-white">
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-100">
                     <Users className="h-6 w-6 text-blue-600" />
                   </div>
-                  <h3 className="mt-4 text-lg font-semibold text-gray-900">No requests found</h3>
+                  <h3 className="mt-4 text-lg font-semibold text-gray-900">No active requests</h3>
                   <p className="mt-2 text-sm text-gray-500">
-                    You haven&apos;t made any visit requests yet. Create one to get started.
+                    You don&apos;t have any active visit requests at the moment.
                   </p>
                   <Button className="mt-6" onClick={() => (window.location.href = `/t/${slug}`)}>
                     Create New Request
                   </Button>
                 </div>
               ) : (
-                currentDrafts.map((request) => (
+                currentActive.map((request) => (
                   <Card
                     key={request.id}
                     className={`flex flex-col border p-4 transition-all hover:shadow-md cursor-pointer ${
@@ -421,7 +433,7 @@ function RequesterContent() {
               )}
             </div>
 
-            {/* Pagination */}
+            {/* Pagination for Active */}
             {totalPages > 1 && (
               <div className="mt-8 flex items-center justify-between">
                 <Button
@@ -445,6 +457,112 @@ function RequesterContent() {
                 </Button>
               </div>
             )}
+          </TabsContent>
+
+          {/* DRAFTS TAB */}
+          <TabsContent value="drafts" className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-start">
+              {draftRequests.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center bg-white">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-blue-50">
+                    <Users className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <h3 className="mt-4 text-lg font-semibold text-gray-900">No drafted requests</h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    You haven&apos;t saved any requests as drafts yet.
+                  </p>
+                </div>
+              ) : (
+                draftRequests.map((request) => (
+                  <Card
+                    key={request.id}
+                    className="flex flex-col border p-4 bg-white hover:shadow-md transition-all cursor-pointer"
+                    onClick={() => handleView(request)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-900 truncate">{request.destination || "Unnamed Draft"}</h3>
+                          {getStatusBadge(request.status)}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2 italic">
+                          Last updated: {new Date(request.updatedAt).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-2 shrink-0 w-[90px]" onClick={(e) => e.stopPropagation()}>
+                        <Button 
+                          size="sm" 
+                          className="h-8 text-xs justify-start px-2 bg-cyan-600 hover:bg-cyan-700 text-white w-full"
+                          onClick={() => (window.location.href = `/t/${slug}?requestId=${request.id}`)}
+                        >
+                          <Eye className="size-3.5 mr-1" /> Continue
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
+          </TabsContent>
+
+          {/* HISTORY TAB */}
+          <TabsContent value="history" className="space-y-6">
+            <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 items-start">
+              {historyRequests.length === 0 ? (
+                <div className="col-span-full flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center bg-white">
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100">
+                    <Calendar className="h-6 w-6 text-gray-600" />
+                  </div>
+                  <h3 className="mt-4 text-lg font-semibold text-gray-900">No history found</h3>
+                  <p className="mt-2 text-sm text-gray-500">
+                    Your past rejected or withdrawn requests will appear here.
+                  </p>
+                </div>
+              ) : (
+                historyRequests.map((request) => (
+                  <Card
+                    key={request.id}
+                    className="flex flex-col border p-4 bg-gray-50/50 grayscale hover:grayscale-0 transition-all cursor-pointer"
+                    onClick={() => handleView(request)}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <h3 className="font-semibold text-gray-900 truncate">{request.destination}</h3>
+                          {getStatusBadge(request.status)}
+                        </div>
+                        <p className="text-xs text-gray-500 mt-2">
+                           {formatDateForDisplay(request.fromDate)} - {formatDateForDisplay(request.toDate)}
+                        </p>
+                        {request.withdrawalReason && (
+                          <p className="text-[10px] text-red-600 mt-2 italic line-clamp-1">
+                            Reason: {request.withdrawalReason}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2 shrink-0 w-[90px]" onClick={(e) => e.stopPropagation()}>
+                        <Button 
+                          size="sm" 
+                          variant="outline" 
+                          className="h-7 text-xs justify-start px-2 bg-white w-full" 
+                          onClick={() => handleView(request)}
+                        >
+                          <Eye className="size-3.5 mr-1" /> View
+                        </Button>
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-7 text-xs justify-start px-2 text-gray-500 hover:text-cyan-600 w-full" 
+                          onClick={() => (window.location.href = `/t/${slug}?duplicateFrom=${request.id}`)}
+                        >
+                          <Copy className="size-3.5 mr-1" /> Duplicate
+                        </Button>
+                      </div>
+                    </div>
+                  </Card>
+                ))
+              )}
+            </div>
           </TabsContent>
 
           {/* INCOMING PUBLIC GUESTS TAB */}

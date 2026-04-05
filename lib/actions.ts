@@ -326,30 +326,32 @@ export async function saveRequest(
       }
     }
 
-    const dataToUpsert = {
+    const dataToUpsert: any = {
       requestedById,
       requestedByEmail,
-      destination: requestData.destination,
-      gate: requestData.gate,
-      fromDate: new Date(requestData.fromDate),
-      toDate: new Date(requestData.toDate),
-      purpose: requestData.purpose,
-      status: (typeof requestData.status === "string"
-        ? requestData.status.replace(/-/g, "_")
-        : requestData.status) as PrismaStatus,
+      destination: requestData.destination || null,
+      gate: requestData.gate || null,
+      fromDate: requestData.fromDate ? new Date(requestData.fromDate) : null,
+      toDate: requestData.toDate ? new Date(requestData.toDate) : null,
+      purpose: requestData.purpose || null,
+      status: (typeof requestData.status === "string" 
+        ? requestData.status.replace(/-/g, "_") 
+        : (requestData.status || "submitted")) as any,
       approvalNumber: requestData.approvalNumber,
       approver1Comment: requestData.approver1Comment,
-      approver1Date: requestData.approver1Date
-        ? new Date(requestData.approver1Date)
-        : null,
+      approver1Date: requestData.approver1Date ? new Date(requestData.approver1Date) : null,
       approver1By: requestData.approver1By,
       approver2Comment: requestData.approver2Comment,
-      approver2Date: requestData.approver2Date
-        ? new Date(requestData.approver2Date)
-        : null,
+      approver2Date: requestData.approver2Date ? new Date(requestData.approver2Date) : null,
       approver2By: requestData.approver2By,
       tenantId, 
     };
+
+    // Sanitize dates to null if they are invalid
+    if (dataToUpsert.fromDate && isNaN(dataToUpsert.fromDate.getTime())) dataToUpsert.fromDate = null;
+    if (dataToUpsert.toDate && isNaN(dataToUpsert.toDate.getTime())) dataToUpsert.toDate = null;
+    if (dataToUpsert.approver1Date && isNaN(dataToUpsert.approver1Date.getTime())) dataToUpsert.approver1Date = null;
+    if (dataToUpsert.approver2Date && isNaN(dataToUpsert.approver2Date.getTime())) dataToUpsert.approver2Date = null;
 
     if (isUpdate) {
       // Update existing guests or create new ones to preserve guest IDs and status

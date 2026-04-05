@@ -50,6 +50,7 @@ function RequestSubmissionPageContent() {
   const params = useParams();
   const searchParams = useSearchParams();
   const duplicateFromId = searchParams?.get("duplicateFrom");
+  const editRequestId = searchParams?.get("requestId");
   const slug = params?.slug as string;
 
   const router = useRouter();
@@ -90,6 +91,7 @@ function RequestSubmissionPageContent() {
   const [blacklistStatus, setBlacklistStatus] = useState<
     ("unknown" | "clear" | "blacklisted")[]
   >(["unknown"]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -108,25 +110,27 @@ function RequestSubmissionPageContent() {
     loadSettings();
   }, [user, slug]);
 
-  // Handle Duplication
+  // Handle Duplication & Editing
   useEffect(() => {
-    if (!duplicateFromId) return;
+    if (!duplicateFromId && !editRequestId) return;
     
-    const loadDuplicateData = async () => {
+    const loadRequestData = async () => {
       try {
-        const original = await getRequestById(duplicateFromId);
+        const targetId = (duplicateFromId || editRequestId) as string;
+        const original = await getRequestById(targetId);
         if (original) {
           setFormData(prev => ({
             ...prev,
             destination: original.destination,
             gate: original.gate,
             purpose: original.purpose,
-            fromDate: "", // Clear dates as requested
-            toDate: "",
+            fromDate: editRequestId ? original.fromDate.split("T")[0] : "", // Keep dates only if editing
+            toDate: editRequestId ? original.toDate.split("T")[0] : "",
           }));
           
-          // Map guests, removing IDs to ensure they are created as new records
-          const duplicatedGuests = original.guests.map(g => ({
+          // Map guests, removing IDs if duplicating to ensure they are created as new records
+          const loadedGuests = original.guests.map(g => ({
+            id: editRequestId ? g.id : undefined,
             name: g.name,
             organization: g.organization,
             email: g.email,
@@ -139,17 +143,21 @@ function RequestSubmissionPageContent() {
             idPhotoUrl: g.idPhotoUrl,
             preferredLanguage: g.preferredLanguage,
           }));
-          setGuests(duplicatedGuests);
-          setBlacklistStatus(new Array(duplicatedGuests.length).fill("clear")); 
+          setGuests(loadedGuests);
+          setBlacklistStatus(new Array(loadedGuests.length).fill("clear")); 
           
-          toast({ title: "Request Duplicated", description: "Original details pre-filled. Please select new dates." });
+          if (editRequestId) {
+            toast({ title: "Draft Loaded", description: "You can now continue editing your drafted request." });
+          } else {
+            toast({ title: "Request Duplicated", description: "Original details pre-filled. Please select new dates." });
+          }
         }
       } catch (err) {
-        console.error("Duplication failed:", err);
+        console.error("Data load failed:", err);
       }
     };
-    loadDuplicateData();
-  }, [duplicateFromId, toast]);
+    loadRequestData();
+  }, [duplicateFromId, editRequestId, toast]);
 
   const addGuest = () => {
     setGuests([
@@ -290,27 +298,61 @@ function RequestSubmissionPageContent() {
     e.target.value = "";
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (e: React.FormEvent, status: "draft" | "submitted" = "submitted") => {
+    if (e) e.preventDefault();
     
-    // Ensure dates are chronologically valid
-    const today = new Date().toISOString().split("T")[0];
-    if (formData.fromDate < today) {
-      toast({ variant: "destructive", title: "Invalid Date", description: "From Date cannot be in the past." });
-      return;
-    }
-    if (formData.toDate < formData.fromDate) {
-      toast({ variant: "destructive", title: "Invalid Date Range", description: "To Date cannot be earlier than From Date." });
-      return;
+    // Strict validation only if status is "submitted"
+    if (status === "submitted") {
+      if (!formData.destination || !formData.gate || !formData.fromDate || !formData.toDate || !formData.purpose) {
+        toast({ variant: "destructive", title: "Form Incomplete", description: "All fields are required to submit a request." });
+        return;
+      }
+      
+      const fromDate = new Date(formData.fromDate);
+      const toDate = new Date(formData.toDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      if (fromDate < today) {
+        toast({ variant: "destructive", title: "Invalid Date", description: "The start date cannot be in the past." });
+        return;
+      }
+
+      if (toDate < fromDate) {
+        toast({ variant: "destructive", title: "Invalid Date", description: "The end date cannot be before the start date." });
+        return;
+      }
+
+      const invalidGuest = guests.find(g => !g.name || !g.organization);
+      if (invalidGuest) {
+        toast({ variant: "destructive", title: "Guest Info Incomplete", description: "All guests must have a name and organization." });
+        return;
+      }
     }
 
-    const request = { ...formData, guests, status: "submitted" as const };
+    setIsSubmitting(true);
     try {
-      await saveRequest(request);
-      toast({ variant: "success", title: "Request Submitted Successfully!" });
-      router.push(`/t/${slug}/requester`);
-    } catch (error) {
-      toast({ variant: "destructive", title: "Submission Failed" });
+      await saveRequest({
+        ...formData,
+        status,
+        id: editRequestId || undefined,
+        guests: guests as any[],
+      });
+      
+      toast({ 
+        title: status === "draft" ? "Draft Saved" : "Request Submitted", 
+        description: status === "draft" ? "Your progress has been saved." : "Your request has been sent for approval." 
+      });
+      
+      window.location.href = `/t/${slug}/requester`;
+    } catch (error: any) {
+      toast({ 
+        variant: "destructive", 
+        title: "Error", 
+        description: error.message || "Failed to save request." 
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -336,8 +378,7 @@ function RequestSubmissionPageContent() {
                     setFormData({ ...formData, requestedBy: e.target.value })
                   }
                   readOnly={!!user}
-                  className={`${user ? "bg-gray-50" : ""} ${focusStyles}`}
-                  required
+                   className={`${user ? "bg-gray-50" : ""} ${focusStyles}`}
                 />
               </div>
 
@@ -367,8 +408,7 @@ function RequestSubmissionPageContent() {
                     setFormData({ ...formData, destination: e.target.value })
                   }
                   placeholder="e.g., ICT Department"
-                  className={focusStyles}
-                  required
+                   className={focusStyles}
                 />
               </div>
 
@@ -380,8 +420,7 @@ function RequestSubmissionPageContent() {
                   onChange={(e) =>
                     setFormData({ ...formData, gate: e.target.value })
                   }
-                  required
-                  className={`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 transition-all ${focusStyles}`}
+                   className={`flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus:outline-none focus:ring-2 transition-all ${focusStyles}`}
                 >
                   <option value="">Select a gate</option>
                   {availableGates.map((gate) => (
@@ -680,10 +719,19 @@ function RequestSubmissionPageContent() {
             </div>
           </div>
 
-          <div className="flex justify-end gap-3 pt-4 border-t">
+          <div className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t mt-8">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={(e) => handleSubmit(e, "draft")}
+              className="w-full sm:w-auto border-gray-300 text-gray-700 hover:bg-gray-50"
+            >
+              Save as Draft
+            </Button>
             <Button
               type="submit"
-              className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700"
+              onClick={(e) => handleSubmit(e, "submitted")}
+              className="w-full sm:w-auto bg-cyan-600 hover:bg-cyan-700"
             >
               Submit Request
             </Button>
