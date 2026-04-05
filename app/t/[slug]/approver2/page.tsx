@@ -17,6 +17,8 @@ import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
+import { formatDateForDisplay } from "@/lib/date-utils"
+import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker"
 
 function generateApprovalNumber(): string {
   const timestamp = Date.now().toString(36).toUpperCase()
@@ -52,6 +54,9 @@ function Approver2PageContent() {
   const [selectedGuests, setSelectedGuests] = useState<Record<string, string[]>>({})
   const [pendingAction, setPendingAction] = useState<null | { type: 'approve' | 'reject' | 'blacklist'; requestId: string }>(null)
   const [pendingActionComment, setPendingActionComment] = useState<string>('')
+
+  // Calendar synchronization for edit mode
+  const [calendarMode, setCalendarMode] = useState<"gregorian" | "ethiopian">("gregorian")
 
   useEffect(() => {
     loadData()
@@ -577,7 +582,11 @@ function Approver2PageContent() {
                             <TableCell className="font-medium">{request.requestedBy}</TableCell>
                             <TableCell>{request.destination}</TableCell>
                             <TableCell>{request.gate}</TableCell>
-                            <TableCell className="min-w-[180px]">{request.fromDate} to {request.toDate}</TableCell>
+                            <TableCell className="min-w-[180px]">
+                              {formatDateForDisplay(request.fromDate)}<br/>
+                              <span className="text-gray-500 text-xs">to</span><br/>
+                              {formatDateForDisplay(request.toDate)}
+                            </TableCell>
                             <TableCell>{request.guests.filter(g => (g.approver1Status === "approved" || g.approver1Status === "rejected" || g.approver1Status === "blacklisted") && !g.approver2Status).length} / {request.guests.filter(g => g.approver1Status === "approved" || g.approver1Status === "rejected" || g.approver1Status === "blacklisted").length}</TableCell>
                             <TableCell>
                               <Input
@@ -637,13 +646,37 @@ function Approver2PageContent() {
                                       <Input id="edit-gate" value={editedRequest.gate || ''} onChange={e => updateEditedField('gate', e.target.value)} />
                                     </div>
                                     <div className="space-y-2">
-                                      <Label htmlFor="edit-from">From Date</Label>
-                                      <Input id="edit-from" type="date" value={editedRequest.fromDate || ''} onChange={e => updateEditedField('fromDate', e.target.value)} />
-                                    </div>
-                                    <div className="space-y-2">
-                                      <Label htmlFor="edit-to">To Date</Label>
-                                      <Input id="edit-to" type="date" value={editedRequest.toDate || ''} onChange={e => updateEditedField('toDate', e.target.value)} />
-                                    </div>
+                                       <Label htmlFor="edit-from">From Date</Label>
+                                       <DualCalendarPicker
+                                          date={editedRequest.fromDate ? new Date(editedRequest.fromDate) : undefined}
+                                          mode={calendarMode}
+                                          onModeChange={setCalendarMode}
+                                          onChange={(d) => {
+                                            if (d) {
+                                              const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                                              updateEditedField('fromDate', isoStr)
+                                            } else {
+                                              updateEditedField('fromDate', "")
+                                            }
+                                          }}
+                                        />
+                                     </div>
+                                     <div className="space-y-2">
+                                       <Label htmlFor="edit-to">To Date</Label>
+                                       <DualCalendarPicker
+                                          date={editedRequest.toDate ? new Date(editedRequest.toDate) : undefined}
+                                          mode={calendarMode}
+                                          onModeChange={setCalendarMode}
+                                          onChange={(d) => {
+                                            if (d) {
+                                              const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                                              updateEditedField('toDate', isoStr)
+                                            } else {
+                                              updateEditedField('toDate', "")
+                                            }
+                                          }}
+                                        />
+                                     </div>
                                     <div className="space-y-2 md:col-span-2 lg:col-span-3">
                                       <Label htmlFor="edit-purpose">Purpose</Label>
                                       <Textarea id="edit-purpose" value={editedRequest.purpose || ''} onChange={e => updateEditedField('purpose', e.target.value)} />

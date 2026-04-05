@@ -22,11 +22,13 @@ import {
   Building2,
   Users,
   BookUser,
+  UserCog,
 } from "lucide-react"
 import { useAuth } from "@/lib/auth"
 import { getNotificationsByUserId } from "@/lib/actions"
 import { useEffect, useState } from "react"
 import { cn } from "@/lib/utils"
+import { ProfileDialog } from "./profile-dialog"
 
 import { useParams } from "next/navigation"
 
@@ -37,6 +39,7 @@ export function AppSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean })
   const { user, logout } = useAuth()
   const [unreadCount, setUnreadCount] = useState(0)
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [isProfileOpen, setIsProfileOpen] = useState(false)
 
   // Get tenant slug from URL or fallback to user's primary slug
   const tenantSlug = (params?.slug as string) || user?.tenantSlug
@@ -220,21 +223,41 @@ export function AppSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean })
                 )}
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleLogout}
-              className="w-full bg-transparent hover:border-red-300 hover:bg-red-50 hover:text-red-600"
-            >
-              <LogOut className="mr-2 size-4" />
-              Logout
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsProfileOpen(true)}
+                className="flex-1 bg-transparent hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-600"
+              >
+                <UserCog className="mr-2 size-4" />
+                Profile
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLogout}
+                className="flex-1 bg-transparent hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+              >
+                <LogOut className="mr-2 size-4" />
+                Logout
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2">
             <div className="flex size-10 items-center justify-center rounded-full text-sm font-semibold text-white bg-gradient-to-br from-teal-500 to-cyan-600">
               {user.name.charAt(0).toUpperCase()}
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsProfileOpen(true)}
+              className="size-8 hover:bg-cyan-50 hover:text-cyan-600"
+              title="My Profile"
+            >
+              <UserCog className="size-4" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -247,6 +270,7 @@ export function AppSidebar({ isSuperAdmin = false }: { isSuperAdmin?: boolean })
           </div>
         )}
       </div>
+      <ProfileDialog open={isProfileOpen} onOpenChange={setIsProfileOpen} />
     </aside>
   )
 }

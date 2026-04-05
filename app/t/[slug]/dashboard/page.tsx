@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label"
 import { Users, Building2, MapPin, UserCircle, Star, Download, TrendingUp, Calendar, CheckCircle } from "lucide-react"
 import { getRequests, getSurveys } from "@/lib/actions"
 import { ProtectedRoute } from "@/components/protected-route"
+import { formatDateForDisplay } from "@/lib/date-utils"
 
 interface Analytics {
   totalRequests: number
@@ -165,7 +166,12 @@ function DashboardContent() {
 
     filteredRequests.forEach((request) => {
       request.guests.forEach((guest) => {
-        csv += `"${request.id}","${request.requestedBy}","${request.destination}","${request.gate}","${request.fromDate}","${request.toDate}","${request.status}","${guest.name}","${guest.organization}","${guest.checkInTime || ""}","${guest.checkOutTime || ""}"\n`
+        const fromDisp = formatDateForDisplay(request.fromDate).replace(/"/g, '""');
+        const toDisp = formatDateForDisplay(request.toDate).replace(/"/g, '""');
+        const checkInDisp = guest.checkInTime ? formatDateForDisplay(guest.checkInTime).replace(/"/g, '""') : "";
+        const checkOutDisp = guest.checkOutTime ? formatDateForDisplay(guest.checkOutTime).replace(/"/g, '""') : "";
+        
+        csv += `"${request.id}","${request.requestedBy}","${request.destination}","${request.gate}","${fromDisp}","${toDisp}","${request.status}","${guest.name}","${guest.organization}","${checkInDisp}","${checkOutDisp}"\n`
       })
     })
 
@@ -187,7 +193,8 @@ function DashboardContent() {
     let csv = "Survey ID,Request ID,Guest ID,Rating,Comment,Submitted At\n"
 
     surveys.forEach((survey) => {
-      csv += `"${survey.id}","${survey.requestId}","${survey.guestId}","${survey.rating}","${survey.comment.replace(/"/g, '""')}","${survey.submittedAt}"\n`
+      const dateDisp = formatDateForDisplay(survey.submittedAt).replace(/"/g, '""');
+      csv += `"${survey.id}","${survey.requestId}","${survey.guestId}","${survey.rating}","${survey.comment.replace(/"/g, '""')}","${dateDisp}"\n`
     })
 
     const blob = new Blob([csv], { type: "text/csv" })

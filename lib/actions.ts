@@ -127,6 +127,7 @@ function mapRowToGuest(row: any): Guest {
         : undefined,
     approver1Comment: row.approver1Comment || undefined,
     approver2Comment: row.approver2Comment || undefined,
+    preferredLanguage: row.preferredLanguage || "en",
   };
 }
 
@@ -158,7 +159,8 @@ function mapRowToSettings(row: any): Settings {
     smsGatewayUrl: row.smsGatewayUrl || undefined,
     smsApiKey: row.smsApiKey ? "__ENCRYPTED__" : undefined,
     emailGatewayUrl: row.emailGatewayUrl || undefined,
-    emailApiKey: row.emailApiKey ? "__ENCRYPTED__" : undefined,
+    emailApiKey: row.emailApiKey || undefined,
+    defaultLanguage: row.defaultLanguage,
   };
 }
 
@@ -372,6 +374,7 @@ export async function saveRequest(
           approver2Status: guest.approver2Status || null,
           approver1Comment: guest.approver1Comment || null,
           approver2Comment: guest.approver2Comment || null,
+          preferredLanguage: guest.preferredLanguage || "en",
         };
 
         if (guest.id && existingGuestMap.has(guest.id)) {
@@ -432,6 +435,7 @@ export async function saveRequest(
             })),
           },
         },
+        include: { guests: true },
       });
       await createAuditLog(
         requestedById,
@@ -440,6 +444,21 @@ export async function saveRequest(
         createdReq.id,
         dataToUpsert,
       );
+      
+      // Auto-notify all Approver 1 users of the new request
+      try {
+         const fullReq = mapRowToRequest(createdReq, createdReq.guests.map(mapRowToGuest));
+         await notificationService.notifyStaffByRole(
+           tenantId,
+           "approver1",
+           "request_submitted_approver",
+           fullReq,
+           { destination: fullReq.destination }
+         );
+      } catch (notifyError) {
+         console.error("[saveRequest] Failed to notify approvers:", notifyError);
+      }
+
       revalidatePath("/");
     }
   } catch (error) {
@@ -816,6 +835,40 @@ export async function getUsers(expectedSlug?: string): Promise<User[]> {
 //   }
 // }
 
+export async function updateMyProfile(data: {
+  language: string;
+}): Promise<{ success: boolean; error?: string }> {
+  try {
+    const { tenantId, session } = await requireTenantSession();
+    if (!session || !session.userId) {
+       return { success: false, error: "Unauthorized" };
+    }
+    const tdb = tenantDb(tenantId);
+
+    // Update using updateMany for tenant-scope safety
+    await (tdb.user as any).updateMany({
+      where: { id: session.userId, tenantId },
+      data: {
+        language: data.language,
+      },
+    });
+
+    await createAuditLog(
+      session.userId,
+      "UPDATE_PROFILE",
+      "User",
+      session.userId,
+      { language: data.language },
+    );
+
+    revalidatePath("/");
+    return { success: true };
+  } catch (error) {
+    console.error("[actions] Error updating profile:", error);
+    return { success: false, error: "Failed to update profile" };
+  }
+}
+
 // Keycloak imports moved to top
 
 export async function saveUser(user: Partial<User> & { id?: string }): Promise<void> {
@@ -1080,9 +1133,40 @@ export async function triggerApprovalNotifications(
   request: Request,
 ): Promise<void> {
   try {
+    const { tenantId } = await requireTenantSession();
     const settings = await getSettings();
+    
+    // 1. Notify Requester and Guests
     if (settings.emailNotifications || settings.smsNotifications) {
       await notificationService.sendApprovalNotifications(request, settings);
+    }
+
+    // 2. Notify Staff based on workflow stage
+    if (request.status === "approver2-pending") {
+      // Notify Approver 2 that a request is ready for final review
+      await notificationService.notifyStaffByRole(
+        tenantId,
+        "approver2",
+        "request_ready_approver2",
+        request,
+        { destination: request.destination },
+        settings
+      );
+    } else if (request.status === "approver2-approved") {
+      // Notify Reception that a visit has been fully finalized
+      await notificationService.notifyStaffByRole(
+        tenantId,
+        "reception",
+        "request_finalized_reception",
+        request,
+        { 
+          destination: request.destination,
+          guestCount: request.guests.length,
+          fromDate: request.fromDate,
+          toDate: request.toDate
+        },
+        settings
+      );
     }
   } catch (error) {
     console.error("[actions] Error triggering approval notifications:", error);

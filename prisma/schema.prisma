@@ -47,6 +47,7 @@ model User {
   role          UserRole @default(requester)
   assignedGates String[]
   active        Boolean  @default(true)
+  language      String   @default("en")
   createdAt     DateTime @default(now())
 
   // Multi-tenant: nullable for superadmin, required for all other roles
@@ -128,6 +129,7 @@ model Guest {
   approver2Status         String?
   approver1Comment        String?
   approver2Comment        String?
+  preferredLanguage       String   @default("en")
 
   // Multi-tenant (redundant with Request.tenantId for direct queries)
   tenantId  String
@@ -186,6 +188,7 @@ model Settings {
   smsApiKey               String?
   emailGatewayUrl         String?
   emailApiKey             String?
+  defaultLanguage         String   @default("en")
 
   // Multi-tenant — unique ensures one settings row per tenant
   tenantId  String  @unique

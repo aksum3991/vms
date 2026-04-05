@@ -181,7 +181,7 @@ export async function submitSelfRegistration(
         requestedById: hostUserId!,
         requestedByEmail: hostUserEmail!,
         destination: requestData.destination,
-        gate: requestData.gate,
+        gate: requestData.gate || "Pending Assignment",
         fromDate: new Date(requestData.fromDate),
         toDate: new Date(requestData.toDate),
         purpose: `[Public Registration] ${requestData.purpose}`,

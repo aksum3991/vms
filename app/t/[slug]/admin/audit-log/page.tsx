@@ -9,6 +9,7 @@ import { ChevronLeft, ChevronRight, Download } from "lucide-react"
 import { getAuditLogs } from "@/lib/actions"
 import type { AuditLog } from "@/lib/types"
 import { ProtectedRoute } from "@/components/protected-route"
+import { formatDateForDisplay } from "@/lib/date-utils"
 
 function AuditLogContent() {
   const [logs, setLogs] = useState<AuditLog[]>([])
@@ -27,7 +28,8 @@ function AuditLogContent() {
   const exportToCSV = () => {
     let csv = "Timestamp,User,Action,Entity\n";
     logs.forEach(log => {
-        csv += `"${log.timestamp}","${log.userName}","${log.action}","${log.entity}"\n`;
+        const timestampDisp = formatDateForDisplay(log.timestamp).replace(/"/g, '""');
+        csv += `"${timestampDisp}","${log.userName}","${log.action}","${log.entity}"\n`;
     });
 
     const blob = new Blob([csv], { type: "text/csv" });
@@ -88,7 +90,7 @@ function AuditLogContent() {
                     currentLogs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="whitespace-nowrap text-sm text-gray-600">
-                          {new Date(log.timestamp).toLocaleString()}
+                          {formatDateForDisplay(log.timestamp)}
                         </TableCell>
                         <TableCell className="font-medium text-gray-800">{log.userName}</TableCell>
                         <TableCell>

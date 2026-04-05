@@ -18,6 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker"
 
 // Reusing the modern focus styles from the main app
 const focusStyles = "bg-white focus-visible:ring-cyan-600 focus-visible:border-cyan-500 transition-all duration-200"
@@ -56,6 +57,9 @@ export default function PublicRegistrationPage() {
     hostEmail: "",
   })
 
+  // State for sync dual calendars
+  const [calendarMode, setCalendarMode] = useState<"gregorian" | "ethiopian">("gregorian")
+
   // Fetch gates on mount
   useEffect(() => {
     async function fetchGates() {
@@ -63,9 +67,6 @@ export default function PublicRegistrationPage() {
       setGatesLoading(true)
       const gates = await getPublicTenantGates(slug)
       setAvailableGates(gates)
-      if (gates.length > 0) {
-        setRequestData(prev => ({ ...prev, gate: gates[0] }))
-      }
       setGatesLoading(false)
     }
     fetchGates()
@@ -86,11 +87,6 @@ export default function PublicRegistrationPage() {
     if (requestData.toDate < requestData.fromDate) {
       toast({ variant: "destructive", title: "Invalid Date Range", description: "To Date cannot be earlier than From Date." })
       return
-    }
-
-    if (!requestData.gate) {
-        toast({ variant: "destructive", title: "Gate Required", description: "Please select an entry gate." })
-        return
     }
 
     setLoading(true)
@@ -247,56 +243,47 @@ export default function PublicRegistrationPage() {
                 </div>
 
                 <div className="grid gap-6 sm:grid-cols-2">
-                    <div className="space-y-2">
-                        <Label htmlFor="gate">Arrival Gate *</Label>
-                        {gatesLoading ? (
-                            <div className="h-10 w-full animate-pulse bg-gray-100 rounded-md border" />
-                        ) : (
-                            <Select 
-                                value={requestData.gate} 
-                                onValueChange={(val) => setRequestData({...requestData, gate: val})}
-                            >
-                                <SelectTrigger className={focusStyles}>
-                                    <SelectValue placeholder="Select arrival gate" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-white shadow-md border-gray-200">
-                                    {availableGates.map(gate => (
-                                        <SelectItem key={gate} value={gate}>{gate}</SelectItem>
-                                    ))}
-                                    {availableGates.length === 0 && <SelectItem value="Main Gate">Main Gate</SelectItem>}
-                                </SelectContent>
-                            </Select>
-                        )}
-                        <p className="text-[10px] text-muted-foreground">Which Organization gate will you be arriving at?</p>
-                    </div>
-                    <div className="space-y-2 opacity-0 pointer-events-none hidden sm:block">
-                        {/* Placeholder to keep layout balanced */}
-                    </div>
-                </div>
-
-                <div className="grid gap-6 sm:grid-cols-2">
                   <div className="space-y-2">
                     <Label htmlFor="fromDate">From Date *</Label>
-                    <Input 
-                      id="fromDate" 
-                      type="date"
-                      min={today}
-                      value={requestData.fromDate}
-                      onChange={e => setRequestData({...requestData, fromDate: e.target.value})}
-                      required 
-                      className={focusStyles}
+                    <DualCalendarPicker
+                      date={requestData.fromDate ? new Date(requestData.fromDate) : undefined}
+                      mode={calendarMode}
+                      onModeChange={setCalendarMode}
+                      onChange={(d) => {
+                        if (d) {
+                          const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                          setRequestData({ ...requestData, fromDate: isoStr })
+                        } else {
+                          setRequestData({ ...requestData, fromDate: "" })
+                        }
+                      }}
+                      disabledDays={(d) => {
+                        const today = new Date()
+                        today.setHours(0,0,0,0)
+                        return d < today
+                      }}
                     />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="toDate">To Date *</Label>
-                    <Input 
-                      id="toDate" 
-                      type="date"
-                      min={minToDate}
-                      value={requestData.toDate}
-                      onChange={e => setRequestData({...requestData, toDate: e.target.value})}
-                      required 
-                      className={focusStyles}
+                    <DualCalendarPicker
+                      date={requestData.toDate ? new Date(requestData.toDate) : undefined}
+                      mode={calendarMode}
+                      onModeChange={setCalendarMode}
+                      onChange={(d) => {
+                        if (d) {
+                          const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                          setRequestData({ ...requestData, toDate: isoStr })
+                        } else {
+                          setRequestData({ ...requestData, toDate: "" })
+                        }
+                      }}
+                      disabledDays={(d) => {
+                        const today = new Date()
+                        today.setHours(0,0,0,0)
+                        const fromDate = requestData.fromDate ? new Date(requestData.fromDate) : null
+                        return d < today || (fromDate ? d < fromDate : false)
+                      }}
                     />
                   </div>
                 </div>

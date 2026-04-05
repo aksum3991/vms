@@ -23,6 +23,7 @@ import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/use-toast";
 import ProtectedRoute from "@/components/protected-route";
 import Image from "next/image";
+import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker";
 import {
   Table,
   TableBody,
@@ -58,6 +59,8 @@ function RequestSubmissionPageContent() {
     requestedById: "",
   });
 
+  const [calendarMode, setCalendarMode] = useState<"gregorian" | "ethiopian">("gregorian");
+
   const [guests, setGuests] = useState<(Omit<Guest, "id"> & { id?: string })[]>(
     [
       {
@@ -71,6 +74,7 @@ function RequestSubmissionPageContent() {
         otherDevice: false,
         otherDeviceDescription: "",
         idPhotoUrl: "",
+        preferredLanguage: "en",
       },
     ],
   );
@@ -109,6 +113,7 @@ function RequestSubmissionPageContent() {
         otherDevice: false,
         otherDeviceDescription: "",
         idPhotoUrl: "",
+        preferredLanguage: "en",
       },
     ]);
     setBlacklistStatus([...blacklistStatus, "unknown"]);
@@ -331,32 +336,61 @@ function RequestSubmissionPageContent() {
 
               <div>
                 <Label htmlFor="fromDate">From Date *</Label>
-                <Input
-                  id="fromDate"
-                  type="date"
-                  min={new Date().toISOString().split("T")[0]}
-                  value={formData.fromDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, fromDate: e.target.value })
-                  }
-                  className={focusStyles}
-                  required
-                />
+                <div className="mt-1">
+                  <DualCalendarPicker
+                    date={formData.fromDate ? new Date(formData.fromDate) : undefined}
+                    mode={calendarMode}
+                    onModeChange={setCalendarMode}
+                    onChange={(d) => {
+                      if (d) {
+                         const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                         // If "To" date exists and is before the new "From" date, clear it
+                         const isToDateInvalid = formData.toDate && new Date(formData.toDate) < d;
+                         setFormData(prev => ({ 
+                           ...prev, 
+                           fromDate: isoStr,
+                           ...(isToDateInvalid && { toDate: "" })
+                         }))
+                      } else {
+                         setFormData({ ...formData, fromDate: "" })
+                      }
+                    }}
+                    disabledDays={(d) => {
+                      const today = new Date()
+                      today.setHours(0,0,0,0)
+                      return d < today
+                    }}
+                  />
+                </div>
               </div>
 
               <div>
                 <Label htmlFor="toDate">To Date *</Label>
-                <Input
-                  id="toDate"
-                  type="date"
-                  min={formData.fromDate || new Date().toISOString().split("T")[0]}
-                  value={formData.toDate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, toDate: e.target.value })
-                  }
-                  className={focusStyles}
-                  required
-                />
+                <div className="mt-1">
+                  <DualCalendarPicker
+                    date={formData.toDate ? new Date(formData.toDate) : undefined}
+                    mode={calendarMode}
+                    onModeChange={setCalendarMode}
+                    onChange={(d) => {
+                      if (d) {
+                         const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                         setFormData({ ...formData, toDate: isoStr })
+                      } else {
+                         setFormData({ ...formData, toDate: "" })
+                      }
+                    }}
+                    disabledDays={(d) => {
+                      if (!formData.fromDate) {
+                         const today = new Date()
+                         today.setHours(0,0,0,0)
+                         return d < today
+                      }
+                      const minDate = new Date(formData.fromDate)
+                      minDate.setHours(0,0,0,0)
+                      return d < minDate
+                    }}
+                  />
+                </div>
               </div>
             </div>
 
@@ -432,6 +466,7 @@ function RequestSubmissionPageContent() {
                       Organization *
                     </TableHead>
                     <TableHead className="min-w-[150px]">Email</TableHead>
+                    <TableHead className="min-w-[80px]">Lang</TableHead>
                     <TableHead className="w-[100px] text-center">
                       ID / Photo
                     </TableHead>
@@ -491,9 +526,21 @@ function RequestSubmissionPageContent() {
                           onChange={(e) =>
                             updateGuest(index, "email", e.target.value)
                           }
-                          placeholder="Email (Optional)"
+                          placeholder="Email"
                           className={`h-9 ${focusStyles}`}
                         />
+                      </TableCell>
+                      <TableCell className="p-2">
+                        <select
+                          value={guest.preferredLanguage || "en"}
+                          onChange={(e) =>
+                            updateGuest(index, "preferredLanguage", e.target.value)
+                          }
+                          className={`h-9 w-full rounded-md border border-input bg-background px-2 py-1 text-xs focus:outline-none focus:ring-1 ${focusStyles}`}
+                        >
+                          <option value="en">EN</option>
+                          <option value="am">AM</option>
+                        </select>
                       </TableCell>
                       <TableCell className="p-2">
                         <div className="flex justify-center">

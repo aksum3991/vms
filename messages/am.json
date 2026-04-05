@@ -1,0 +1,57 @@
+{
+  "notifications": {
+    "request_approved": {
+      "subject": "የጉብኝት ጥያቄ ጸድቋል - {id}",
+      "body": "ክቡር/ክት {name}፣ ወደ {destination} ያቀረቡት የጉብኝት ጥያቄ በ{approver} ጸድቋል። የፍቃድ ቁጥር፡ {id}። መግቢያ በር፡ {gate}። ቀን፡ ከ {from} እስከ {to}።{comment}"
+    },
+    "request_rejected": {
+      "subject": "የጉብኝት ጥያቄ አልተቀበለም - {destination}",
+      "body": "ወደ {destination} (መግቢያ በር፡ {gate}) በ {date} ያቀረቡት የጉብኝት ጥያቄ ውድቅ ተደርጓል።{reason}"
+    },
+    "guest_checkin": {
+      "subject": "የእንግዳ መግቢያ ማሳሰቢያ",
+      "body": "እንግዳ {name} ከ {organization} በበር {gate} በኩል ገብተዋል።"
+    },
+    "guest_checkout": {
+      "subject": "የእንግዳ መውጫ ማረጋገጫ",
+      "body": "ጤና ይስጥልኝ {name}፣ ከ{destination} መውጣትዎ ተመዝግቧል። አስተያየትዎን እናደንቃለን። እባክዎን ልምድዎን እዚህ ያካፍሉ፡ {surveyUrl}"
+    },
+    "host_verified": {
+      "subject": "የጉብኝት ጥያቄ ተረጋግጧል - {destination}",
+      "body": "ክቡር/ክት {name}፣ ወደ {destination} ያቀረቡት የጉብኝት ጥያቄ በ{host} ተረጋግጦ አሁን በደህንነት ክትትል ላይ ይገኛል።"
+    },
+    "host_denied": {
+      "subject": "የጉብኝት ጥያቄ ውድቅ ተደርጓል - {destination}",
+      "body": "ክቡር/ክት {name}፣ ወደ {destination} ያቀረቡት የጉብኝት ጥያቄ በ{host} ውድቅ ተደርጓል።{reason}"
+    },
+    "blacklist_alert": {
+      "subject": "VMS3 የጥቁር መዝገብ ማስጠንቀቂያ",
+      "body": "በጥቁር መዝገብ ላይ ያለ ሙከራ በ{requester}፡ {name} ከ {organization}። ምክንያቱ፡ {matchedBy}።"
+    },
+    "approver1_reminder": {
+      "subject": "VMS3 የማረጋገጫ ማሳሰቢያ",
+      "body": "ማሳሰቢያ፡ የጥያቄ ቁጥር {id} ለማረጋገጫ ከ24 ሰዓት በላይ ቆይቷል።"
+    },
+    "user_registration": {
+      "subject": "እንኳን ወደ {tenant} በደህና መጡ",
+      "body": "እንኳን ወደ {tenant} በደህና መጡ፣ {name}!\n\nመለያዎ በ{role} ሚና ተፈጥሯል።\n{password}እባክዎን እዚህ ይግቡ፡ {loginUrl}"
+    },
+    "request_submitted_approver": {
+      "subject": "አዲስ የጉብኝት ጥያቄ - {destination}",
+      "body": "አዲስ የጉብኝት ጥያቄ ለ {destination} ከ {requester} ለግምገማ ቀርቧል። እዚህ ይገምግሙ፡ {url}"
+    },
+    "request_ready_approver2": {
+      "subject": "የመጨረሻ ግምገማ ያስፈልጋል - {destination}",
+      "body": "የጉብኝት ጥያቄ ለ {destination} ከ {requester} በአንደኛው አጽዳቂ ተገምግሞ የእርስዎን የመጨረሻ ግምገማ ይጠብቃል፡ {url}"
+    },
+    "request_finalized_reception": {
+      "subject": "የጸደቀ ጉብኝት - {destination}",
+      "body": "የ {guestCount} እንግዳ(ዎች) ጉብኝት ለ {destination} ({fromDate} to {toDate}) ጸድቋል። እባክዎን እዚህ ያረጋግጡ፡ {url}"
+    }
+  },
+  "common": {
+    "approver_comment": "\n\nየአረጋጋጭ አስተያየት፡ {comment}",
+    "reason": "\n\nምክንያት፡ {comment}",
+    "temp_password": "ጊዜያዊ የይለፍ ቃል፡ {password}\n\n"
+  }
+}

@@ -8,6 +8,9 @@ import {
   emitGuestCheckoutConfirmationNow,
 } from "./notifications/dispatcher";
 import QRCode from "qrcode";
+import { getTranslation } from "./notifications/i18n";
+import { format } from "date-fns";
+import { formatDateForDisplay } from "./date-utils";
 
 export const notificationService = {
   // Generate a unique approval number
@@ -32,11 +35,27 @@ export const notificationService = {
 
     const finalApproverName = request.approver2By || request.approver1By || "an approver";
     const finalApproverComment = request.approver2Comment || request.approver1Comment || "";
-    const commentText = finalApproverComment || ""; // Use raw text to avoid double labeling later
-
+    const commentText = finalApproverComment || ""; 
     const approvalNumber = request.approvalNumber;
-    const message = `Your visit request has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}. Please present this approval number at reception.${commentText ? `\n\nApprover Comment: ${commentText}` : ""}`;
-    const emailSubject = `Visit Request Approved - ${approvalNumber}`;
+
+    // Determine locale
+    const requester = await db.user.findUnique({ where: { id: request.requestedById }, select: { id: true } });
+    const userRow = await db.user.findUnique({ where: { id: request.requestedById } });
+    const locale = (userRow as any)?.language || effectiveSettings?.defaultLanguage || "en";
+
+    const commonParams = {
+      name: request.requestedBy,
+      destination: request.destination,
+      approver: finalApproverName,
+      id: approvalNumber,
+      gate: request.gate,
+      from: formatDateForDisplay(request.fromDate),
+      to: formatDateForDisplay(request.toDate),
+      comment: commentText ? getTranslation("common.approver_comment", locale, { comment: commentText }) : ""
+    };
+
+    const message = getTranslation("notifications.request_approved.body", locale, commonParams);
+    const emailSubject = getTranslation("notifications.request_approved.subject", locale, { id: approvalNumber });
 
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];
@@ -95,12 +114,15 @@ export const notificationService = {
         ];
       }
 
-      const guestMessage = `Dear ${guest.name}, your visit to ${request.destination} has been approved by ${finalApproverName}! Approval Number: ${approvalNumber}. Gate: ${request.gate}. Date: ${request.fromDate} to ${request.toDate}.${commentText ? `\n\nApprover Comment: ${commentText}` : ""}`;
+      const guestLocale = guest.preferredLanguage || locale; // fallback to requester locale if guest has none set yet
+      const guestParams = { ...commonParams, name: guest.name };
+      const guestMessage = getTranslation("notifications.request_approved.body", guestLocale, guestParams);
+      const guestSubject = getTranslation("notifications.request_approved.subject", guestLocale, { id: approvalNumber });
 
       if (effectiveSettings?.emailNotifications && guest.email) {
         emailDispatches.push({
           to: guest.email,
-          subject: `Visit Approved - ${approvalNumber}`,
+          subject: guestSubject,
           body: guestMessage,
           html: htmlMessage,
           attachments: attachments,
@@ -132,8 +154,18 @@ export const notificationService = {
       settings ??
       (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
 
-    const message = `Your visit request to ${request.destination} (Gate: ${request.gate}) on ${request.fromDate} has been rejected.${comment ? `\n\nReason: ${comment}` : ""}`;
-    const emailSubject = `Visit Request Rejected - ${request.destination}`;
+    const userRow = await db.user.findUnique({ where: { id: request.requestedById } });
+    const locale = (userRow as any)?.language || (effectiveSettings as any)?.defaultLanguage || "en";
+
+    const commonParams = {
+      destination: request.destination,
+      gate: request.gate,
+      date: formatDateForDisplay(request.fromDate),
+      reason: comment ? getTranslation("common.reason", locale, { comment }) : ""
+    };
+
+    const message = getTranslation("notifications.request_rejected.body", locale, commonParams);
+    const emailSubject = getTranslation("notifications.request_rejected.subject", locale, { destination: request.destination });
 
     const emailDispatches: { to: string; subject?: string; body: string }[] = [];
     const smsDispatches: { to: string; body: string }[] = [];
@@ -146,7 +178,6 @@ export const notificationService = {
       });
     }
 
-    // Only send the SMS to the requester if they have their phone mapped in the guests list
     if (effectiveSettings?.smsNotifications) {
       const requesterAsGuest = request.guests.find(
         (g) => g.email === request.requestedByEmail
@@ -159,7 +190,7 @@ export const notificationService = {
     await createUserNotificationAndDispatch({
       userId: request.requestedById,
       type: "request_rejected",
-      message: `Request rejected. ${comment ? `Reason: ${comment}` : ""}`,
+      message: getTranslation("notifications.request_rejected.subject", locale, { destination: request.destination }),
       requestId: request.id,
       email: emailDispatches,
       sms: smsDispatches,
@@ -175,7 +206,17 @@ export const notificationService = {
     const effectiveSettings =
       settings ??
       (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
-    const message = `Guest ${guest.name} from ${guest.organization} has checked in at Gate ${request.gate}.`;
+    
+    const userRow = await db.user.findUnique({ where: { id: request.requestedById } });
+    const locale = (userRow as any)?.language || (effectiveSettings as any)?.defaultLanguage || "en";
+
+    const message = getTranslation("notifications.guest_checkin.body", locale, {
+      name: guest.name,
+      organization: guest.organization,
+      gate: request.gate
+    });
+    const emailSubject = getTranslation("notifications.guest_checkin.subject", locale, {});
+
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];
     const smsDispatches: { to: string; body: string }[] = [];
@@ -183,13 +224,11 @@ export const notificationService = {
     if (effectiveSettings?.emailNotifications && request.requestedByEmail) {
       emailDispatches.push({
         to: request.requestedByEmail,
-        subject: "Guest Check-In Alert",
+        subject: emailSubject,
         body: message,
       });
     }
     
-    // Add SMS support - send to requester if they have a phone number
-    // Note: User model doesn't have phone, but we can check if requester email matches a guest
     if (effectiveSettings?.smsNotifications) {
       // Try to find requester's phone from their own guest entry if they're also a guest
       const requesterAsGuest = request.guests.find(
@@ -222,7 +261,16 @@ export const notificationService = {
     const effectiveSettings =
       settings ??
       (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
-    const message = `Guest ${guest.name} from ${guest.organization} has checked out from ${request.destination}.`;
+    
+    const userRow = await db.user.findUnique({ where: { id: request.requestedById } });
+    const locale = (userRow as any)?.language || (effectiveSettings as any)?.defaultLanguage || "en";
+
+    const message = getTranslation("notifications.guest_checkout.body", locale, {
+      name: guest.name,
+      destination: request.destination,
+      surveyUrl: "#" // Survey URL is handled better in the event-driven trigger
+    });
+    
     const emailDispatches: { to: string; subject?: string; body: string }[] =
       [];
     const smsDispatches: { to: string; body: string }[] = [];
@@ -230,12 +278,11 @@ export const notificationService = {
     if (effectiveSettings?.emailNotifications && request.requestedByEmail) {
       emailDispatches.push({
         to: request.requestedByEmail,
-        subject: "Guest Check-Out Alert",
+        subject: getTranslation("notifications.guest_checkout.subject", locale, {}),
         body: message,
       });
     }
     
-    // Add SMS support - send to requester if they have a phone number
     if (effectiveSettings?.smsNotifications) {
       const requesterAsGuest = request.guests.find(
         (g) => g.email === request.requestedByEmail
@@ -316,25 +363,36 @@ export const notificationService = {
       settings ??
       (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
     
-    const message = `Your visit request to ${request.destination} has been verified by ${hostName} and is now under security review. You will receive another update once final approval is granted.`;
-    const emailSubject = `Visit Request Verified - ${request.destination}`;
-
+    // Get guest language
+    const locale = (effectiveSettings as any)?.defaultLanguage || "en"; // Default locale for guests if not specified
+    
     const emailDispatches: { to: string; subject?: string; body: string }[] = [];
     const smsDispatches: { to: string; body: string }[] = [];
 
     for (const guest of request.guests) {
+      const gLocale = (guest as any).preferredLanguage || locale;
+      const gMsg = getTranslation("notifications.host_verified.body", gLocale, {
+        name: guest.name,
+        destination: request.destination,
+        host: hostName
+      });
+      const gSub = getTranslation("notifications.host_verified.subject", gLocale, { destination: request.destination });
+
       if (effectiveSettings?.emailNotifications && guest.email) {
-        emailDispatches.push({ to: guest.email, subject: emailSubject, body: `Dear ${guest.name}, ${message}` });
+        emailDispatches.push({ to: guest.email, subject: gSub, body: gMsg });
       }
       if (effectiveSettings?.smsNotifications && guest.phone) {
-        smsDispatches.push({ to: guest.phone, body: `Dear ${guest.name}, ${message}` });
+        smsDispatches.push({ to: guest.phone, body: gMsg });
       }
     }
+
+    const requester = await db.user.findUnique({ where: { id: request.requestedById } });
+    const rLocale = (requester as any)?.language || locale;
 
     await createUserNotificationAndDispatch({
       userId: request.requestedById,
       type: "host_verified",
-      message: `Request verified by ${hostName}.`,
+      message: getTranslation("notifications.host_verified.subject", rLocale, { destination: request.destination }),
       requestId: request.id,
       email: emailDispatches,
       sms: smsDispatches,
@@ -352,30 +410,101 @@ export const notificationService = {
       settings ??
       (await db.settings.findFirst({ where: request.tenantId ? { tenantId: request.tenantId } : {} }).catch(() => null));
     
-    const message = `Your visit request to ${request.destination} has been declined by ${hostName}.${reason ? `\n\nReason: ${reason}` : ""}`;
-    const emailSubject = `Visit Request Declined - ${request.destination}`;
+    const locale = (effectiveSettings as any)?.defaultLanguage || "en";
 
     const emailDispatches: { to: string; subject?: string; body: string }[] = [];
     const smsDispatches: { to: string; body: string }[] = [];
 
     for (const guest of request.guests) {
+      const gLocale = (guest as any).preferredLanguage || locale;
+      const gMsg = getTranslation("notifications.host_denied.body", gLocale, {
+        name: guest.name,
+        destination: request.destination,
+        host: hostName,
+        reason: reason ? getTranslation("common.reason", gLocale, { comment: reason }) : ""
+      });
+      const gSub = getTranslation("notifications.host_denied.subject", gLocale, { destination: request.destination });
+
       if (effectiveSettings?.emailNotifications && guest.email) {
-        emailDispatches.push({ to: guest.email, subject: emailSubject, body: `Dear ${guest.name}, ${message}` });
+        emailDispatches.push({ to: guest.email, subject: gSub, body: gMsg });
       }
       if (effectiveSettings?.smsNotifications && guest.phone) {
-        smsDispatches.push({ to: guest.phone, body: `Dear ${guest.name}, ${message}` });
+        smsDispatches.push({ to: guest.phone, body: gMsg });
       }
     }
+
+    const requester = await db.user.findUnique({ where: { id: request.requestedById } });
+    const rLocale = (requester as any)?.language || locale;
 
     await createUserNotificationAndDispatch({
       userId: request.requestedById,
       type: "host_denied",
-      message: `Request declined by ${hostName}.`,
+      message: getTranslation("notifications.host_denied.subject", rLocale, { destination: request.destination }),
       requestId: request.id,
       email: emailDispatches,
       sms: smsDispatches,
       tenantId: request.tenantId,
     });
+  },
+
+  // Notify all staff members of a given role about a request
+  async notifyStaffByRole(
+    tenantId: string,
+    role: "approver1" | "approver2" | "reception",
+    templateKey: string,
+    request: Request,
+    params: Record<string, any>,
+    settings?: Settings
+  ): Promise<void> {
+    const effectiveSettings =
+      settings ??
+      (await db.settings.findFirst({ where: { tenantId } }).catch(() => null));
+
+    const tenant = await db.tenant.findUnique({ where: { id: tenantId } });
+    const slug = tenant?.slug || "default";
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+    
+    // Construct role-specific dashboard URL
+    const dashboardPath = role === "reception" ? "reception" : role;
+    const url = `${baseUrl}/t/${slug}/${dashboardPath}`;
+
+    // Find all users with this role in this tenant
+    const users = await db.user.findMany({
+      where: {
+        tenantId,
+        role: role as any,
+      }
+    });
+
+    for (const user of users) {
+      const locale = (user as any).language || effectiveSettings?.defaultLanguage || "en";
+      const localizedParams = { 
+        ...params, 
+        url,
+        requester: request.requestedBy
+      };
+      
+      const message = getTranslation(`notifications.${templateKey}.body`, locale, localizedParams);
+      const subject = getTranslation(`notifications.${templateKey}.subject`, locale, localizedParams);
+
+      const emailDispatches = [];
+      if (effectiveSettings?.emailNotifications && user.email) {
+        emailDispatches.push({
+          to: user.email,
+          subject,
+          body: message,
+        });
+      }
+
+      await createUserNotificationAndDispatch({
+        userId: user.id,
+        type: templateKey as any,
+        message,
+        requestId: request.id,
+        email: emailDispatches,
+        tenantId: tenantId,
+      });
+    }
   },
 };
 

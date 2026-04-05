@@ -29,6 +29,7 @@ function SettingsContent() {
     checkInOutNotifications: true,
     primaryColor: "#06b6d4",
     accentColor: "#0891b2",
+    defaultLanguage: "en",
   })
   const [initialSettings, setInitialSettings] = useState<SettingsType>({
     gates: [],
@@ -38,6 +39,7 @@ function SettingsContent() {
     checkInOutNotifications: true,
     primaryColor: "#06b6d4",
     accentColor: "#0891b2",
+    defaultLanguage: "en",
   })
   const [users, setUsers] = useState<User[]>([])
   const [newGate, setNewGate] = useState("")
@@ -309,7 +311,24 @@ function SettingsContent() {
                       <p className="mt-2 text-xs text-gray-500">Uses the SMTP configuration above to send a test email.</p>
                     </div>
                   </Card>
-                  <div />
+                  <Card className="p-6 text-cyan-600 border-cyan-100 bg-cyan-50/30">
+                    <h3 className="mb-4 text-lg font-medium">System Language</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <Label htmlFor="defaultLanguage">Default Notification Language</Label>
+                        <select
+                          id="defaultLanguage"
+                          value={settings.defaultLanguage || "en"}
+                          onChange={(e) => handleSettingChange('defaultLanguage', e.target.value)}
+                          className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500 bg-white text-gray-900"
+                        >
+                          <option value="en">English (US)</option>
+                          <option value="am">Amharic (አማርኛ)</option>
+                        </select>
+                        <p className="mt-2 text-xs text-gray-500">This language will be used if a recipient (User or Guest) has no language preference set.</p>
+                      </div>
+                    </div>
+                  </Card>
                 </div>
               </CardContent>
               <CardFooter className="flex justify-end gap-2 border-t pt-6">
@@ -331,6 +350,7 @@ function SettingsContent() {
                     <tr className="border-b">
                       <th className="pb-3 text-left text-sm font-medium text-gray-700">Name</th>
                       <th className="pb-3 text-left text-sm font-medium text-gray-700">Email</th>
+                      <th className="pb-3 text-left text-sm font-medium text-gray-700">Language</th>
                       <th className="pb-3 text-left text-sm font-medium text-gray-700">Current Role</th>
                       <th className="pb-3 text-left text-sm font-medium text-gray-700">Change Role</th>
                     </tr>
@@ -340,6 +360,21 @@ function SettingsContent() {
                       <tr key={user.id}>
                         <td className="py-3 text-sm font-medium text-gray-900">{user.name}</td>
                         <td className="py-3 text-sm text-gray-600">{user.email}</td>
+                        <td className="py-3">
+                          <select
+                            value={user.language || "en"}
+                            onChange={async (e) => {
+                              const updatedUser = { ...user, language: e.target.value }
+                              await saveUser(updatedUser)
+                              await loadData()
+                              toast({ variant: "success", title: "Language Updated", description: `${user.name}'s language set to ${e.target.value}.` })
+                            }}
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs focus:border-cyan-500 focus:outline-none focus:ring-1 focus:ring-cyan-500"
+                          >
+                            <option value="en">EN</option>
+                            <option value="am">AM</option>
+                          </select>
+                        </td>
                         <td className="py-3">
                           <Badge
                             variant={

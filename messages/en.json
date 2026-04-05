@@ -1,0 +1,57 @@
+{
+  "notifications": {
+    "request_approved": {
+      "subject": "Visit Request Approved - {id}",
+      "body": "Dear {name}, your visit to {destination} is approved by {approver}. Approval Number: {id}. Gate: {gate}. Date: {from} to {to}.{comment}"
+    },
+    "request_rejected": {
+      "subject": "Visit Request Rejected - {destination}",
+      "body": "Your visit request to {destination} (Gate: {gate}) on {date} has been rejected.{reason}"
+    },
+    "guest_checkin": {
+      "subject": "Guest Check-In Alert",
+      "body": "Guest {name} from {organization} has checked in at Gate {gate}."
+    },
+    "guest_checkout": {
+      "subject": "Guest Check-Out Confirmation",
+      "body": "Hello {name}, your check-out from {destination} has been recorded. We value your feedback. Please share your experience here: {surveyUrl}"
+    },
+    "host_verified": {
+      "subject": "Visit Request Verified - {destination}",
+      "body": "Dear {name}, your visit request to {destination} has been verified by {host} and is now under security review."
+    },
+    "host_denied": {
+      "subject": "Visit Request Declined - {destination}",
+      "body": "Dear {name}, your visit request to {destination} has been declined by {host}.{reason}"
+    },
+    "blacklist_alert": {
+      "subject": "VMS3 Blacklist Alert",
+      "body": "Blacklist attempt by {requester}: {name} from {organization}. Matched By: {matchedBy}."
+    },
+    "approver1_reminder": {
+      "subject": "VMS3 Approval Reminder",
+      "body": "Reminder: Request {id} has been pending Review > 24h."
+    },
+    "user_registration": {
+      "subject": "Welcome to {tenant}",
+      "body": "Welcome to {tenant}, {name}!\n\nYour account has been created with the role: {role}.\n{password}Please log in here: {loginUrl}"
+    },
+    "request_submitted_approver": {
+      "subject": "New Visit Request - {destination}",
+      "body": "A new visit request for {destination} from {requester} requires your review. Review here: {url}"
+    },
+    "request_ready_approver2": {
+      "subject": "Final Review Required - {destination}",
+      "body": "A visit request for {destination} from {requester} has been processed by Approver 1 and is pending your review: {url}"
+    },
+    "request_finalized_reception": {
+      "subject": "Approved Visit - {destination}",
+      "body": "A visit for {guestCount} guest(s) to {destination} ({fromDate} to {toDate}) has been approved. View the reception dashboard: {url}"
+    }
+  },
+  "common": {
+    "approver_comment": "\n\nApprover Comment: {comment}",
+    "reason": "\n\nReason: {comment}",
+    "temp_password": "Temporary Password: {password}\n\n"
+  }
+}

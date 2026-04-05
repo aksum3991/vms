@@ -19,6 +19,8 @@ import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/dialog"
 import { useToast } from "@/components/ui/use-toast"
 import { useServerErrorHandler } from "@/lib/auth-client"
+import { formatDateForDisplay } from "@/lib/date-utils"
+import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker"
 
 // Helper to convert ISO string to datetime-local value
 function toDateTimeLocal(isoString: string): string {
@@ -52,6 +54,9 @@ function RequesterContent() {
   const [withdrawReason, setWithdrawReason] = useState("")
   const [requestToWithdraw, setRequestToWithdraw] = useState<Request | null>(null)
   const [isWithdrawing, setIsWithdrawing] = useState(false)
+
+  // Calendar synchronization for edit modal
+  const [calendarMode, setCalendarMode] = useState<"gregorian" | "ethiopian">("gregorian")
 
   useEffect(() => {
     loadRequests()
@@ -328,7 +333,7 @@ function RequesterContent() {
                           <p className="flex items-center gap-2">
                             <Calendar className="size-3.5 text-gray-400" />
                             <span className="text-xs">
-                              {new Date(request.fromDate).toLocaleDateString()} - {new Date(request.toDate).toLocaleDateString()}
+                              {formatDateForDisplay(request.fromDate)} - {formatDateForDisplay(request.toDate)}
                             </span>
                           </p>
                           <p className="flex items-center gap-2">
@@ -464,7 +469,7 @@ function RequesterContent() {
                           <p className="flex items-center gap-2 text-gray-600 mt-2">
                             <Calendar className="size-3.5 text-gray-400" />
                             <span className="text-xs">
-                              {new Date(request.fromDate).toLocaleDateString()} - {new Date(request.toDate).toLocaleDateString()}
+                              {formatDateForDisplay(request.fromDate)} - {formatDateForDisplay(request.toDate)}
                             </span>
                           </p>
                         </div>
@@ -555,11 +560,11 @@ function RequesterContent() {
                   <div className="space-y-4">
                      <div>
                         <Label className="text-xs text-muted-foreground uppercase tracking-wider">From</Label>
-                        <p className="font-medium text-gray-900 break-words">{new Date(selectedRequest.fromDate).toLocaleString()}</p>
+                        <p className="font-medium text-gray-900 break-words">{formatDateForDisplay(selectedRequest.fromDate)}</p>
                      </div>
                      <div>
                         <Label className="text-xs text-muted-foreground uppercase tracking-wider">To</Label>
-                        <p className="font-medium text-gray-900 break-words">{new Date(selectedRequest.toDate).toLocaleString()}</p>
+                        <p className="font-medium text-gray-900 break-words">{formatDateForDisplay(selectedRequest.toDate)}</p>
                      </div>
                   </div>
                 </div>
@@ -669,29 +674,48 @@ function RequesterContent() {
                 Update the &apos;From Date&apos; and &apos;To Date&apos; for the request.
               </DialogDescription>
             </DialogHeader>
-            <div className="grid gap-4 py-4">
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="fromDate" className="text-right">
-                  From Date
-                </Label>
-                <Input
-                  id="fromDate"
-                  type="datetime-local"
-                  value={editForm.fromDate}
-                  onChange={(e) => setEditForm({ ...editForm, fromDate: e.target.value })}
-                  className="col-span-3"
+            <div className="grid gap-6 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="fromDate">From Date</Label>
+                <DualCalendarPicker
+                  date={editForm.fromDate ? new Date(editForm.fromDate) : undefined}
+                  mode={calendarMode}
+                  onModeChange={setCalendarMode}
+                  onChange={(d) => {
+                    if (d) {
+                      const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                      setEditForm({ ...editForm, fromDate: isoStr })
+                    } else {
+                      setEditForm({ ...editForm, fromDate: "" })
+                    }
+                  }}
+                  disabledDays={(d) => {
+                    const today = new Date()
+                    today.setHours(0,0,0,0)
+                    return d < today
+                  }}
                 />
               </div>
-              <div className="grid grid-cols-4 items-center gap-4">
-                <Label htmlFor="toDate" className="text-right">
-                  To Date
-                </Label>
-                <Input
-                  id="toDate"
-                  type="datetime-local"
-                  value={editForm.toDate}
-                  onChange={(e) => setEditForm({ ...editForm, toDate: e.target.value })}
-                  className="col-span-3"
+              <div className="space-y-2">
+                <Label htmlFor="toDate">To Date</Label>
+                <DualCalendarPicker
+                  date={editForm.toDate ? new Date(editForm.toDate) : undefined}
+                  mode={calendarMode}
+                  onModeChange={setCalendarMode}
+                  onChange={(d) => {
+                    if (d) {
+                      const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                      setEditForm({ ...editForm, toDate: isoStr })
+                    } else {
+                      setEditForm({ ...editForm, toDate: "" })
+                    }
+                  }}
+                  disabledDays={(d) => {
+                    const today = new Date()
+                    today.setHours(0,0,0,0)
+                    const fromDate = editForm.fromDate ? new Date(editForm.fromDate) : null
+                    return d < today || (fromDate ? d < fromDate : false)
+                  }}
                 />
               </div>
             </div>

@@ -19,6 +19,7 @@ import { useServerErrorHandler } from "@/lib/auth-client"
 import { useAuth } from "@/lib/auth"
 import { useToast } from "@/components/ui/use-toast"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select"
+import { formatDateForDisplay } from "@/lib/date-utils"
 
 interface GuestWithRequest extends Guest {
   requestId: string
@@ -495,8 +496,8 @@ function ReceptionPageContent() {
                         </TableCell>
                         <TableCell className="px-4 py-3 text-center text-sm text-gray-700">
                           <div className="text-xs">
-                            <div className="font-medium">From: {new Date(guest.fromDate).toLocaleString()}</div>
-                            <div className="font-medium mt-1">To: {new Date(guest.toDate).toLocaleString()}</div>
+                            <div className="font-medium">From: {formatDateForDisplay(guest.fromDate)}</div>
+                            <div className="font-medium mt-1">To: {formatDateForDisplay(guest.toDate)}</div>
                           </div>
                         </TableCell>
                         <TableCell className="px-4 py-3 text-center">
@@ -703,8 +704,8 @@ function ReceptionPageContent() {
                     <p className="text-sm text-gray-600">Approver: {selectedApprovalGuests[0].approver1By}</p>
                     <p className="text-sm text-gray-600">Destination: {selectedApprovalGuests[0].destination}</p>
                     <p className="text-sm text-gray-600">Gate: {selectedApprovalGuests[0].gateNumber}</p>
-                    <p className="text-sm text-gray-600">From: {new Date(selectedApprovalGuests[0].fromDate).toLocaleString()}</p>
-                    <p className="text-sm text-gray-600">To: {new Date(selectedApprovalGuests[0].toDate).toLocaleString()}</p>
+                    <p className="text-sm text-gray-600">From: {formatDateForDisplay(selectedApprovalGuests[0].fromDate)}</p>
+                    <p className="text-sm text-gray-600">To: {formatDateForDisplay(selectedApprovalGuests[0].toDate)}</p>
                   </div>
                   <div>
                     <h4 className="font-medium text-gray-900">Guests ({selectedApprovalGuests.length})</h4>

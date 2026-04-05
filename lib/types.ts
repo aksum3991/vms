@@ -16,6 +16,7 @@ export interface Guest {
   approver2Status?: "pending" | "approved" | "rejected" | "blacklisted";
   approver1Comment?: string;
   approver2Comment?: string;
+  preferredLanguage?: string;
 }
 
 export interface Request {
@@ -82,6 +83,7 @@ export interface User {
   active?: boolean; // Added active field for account activation
   tenantId?: string | null;
   tenantSlug?: string | null;
+  language?: string;
   createdAt: string;
 }
 
@@ -101,6 +103,7 @@ export interface Settings {
   smsApiKey?: string;
   emailGatewayUrl?: string;
   emailApiKey?: string;
+  defaultLanguage?: string;
 }
 
 export interface Notification {

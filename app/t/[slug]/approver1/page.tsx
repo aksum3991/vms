@@ -17,6 +17,15 @@ import { useToast } from "@/components/ui/use-toast"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Checkbox } from "@/components/ui/checkbox"
+import { formatDateForDisplay } from "@/lib/date-utils"
+import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 function generateApprovalNumber(): string {
   const timestamp = Date.now().toString(36).toUpperCase()
@@ -53,6 +62,9 @@ function Approver1PageContent() {
   const [selectedGuests, setSelectedGuests] = useState<Record<string, string[]>>({})
   const [pendingAction, setPendingAction] = useState<null | { type: 'approve' | 'reject' | 'blacklist'; requestId: string }>(null)
   const [pendingActionComment, setPendingActionComment] = useState<string>('')
+
+  // Calendar synchronization for edit mode
+  const [calendarMode, setCalendarMode] = useState<"gregorian" | "ethiopian">("gregorian")
 
   useEffect(() => {
     loadData()
@@ -623,7 +635,11 @@ function Approver1PageContent() {
                             <TableCell className="font-medium">{request.requestedBy}</TableCell>
                             <TableCell>{request.destination}</TableCell>
                             <TableCell>{request.gate}</TableCell>
-                            <TableCell className="min-w-[180px]">{request.fromDate} to {request.toDate}</TableCell>
+                            <TableCell className="min-w-[180px]">
+                              {formatDateForDisplay(request.fromDate)}<br/>
+                              <span className="text-gray-500 text-xs">to</span><br/>
+                              {formatDateForDisplay(request.toDate)}
+                            </TableCell>
                             <TableCell>{request.guests.filter(g => !g.approver1Status).length} / {request.guests.length}</TableCell>
                             <TableCell>
                               <Input
@@ -663,15 +679,57 @@ function Approver1PageContent() {
                                       </div>
                                       <div className="space-y-2">
                                         <Label htmlFor="edit-gate">Gate</Label>
-                                        <Input id="edit-gate" value={editedRequest.gate || ''} onChange={e => updateEditedField('gate', e.target.value)} />
+                                        <Select 
+                                          value={editedRequest.gate || ''} 
+                                          onValueChange={(val) => updateEditedField('gate', val)}
+                                        >
+                                          <SelectTrigger id="edit-gate" className="bg-white">
+                                            <SelectValue placeholder="Select gate" />
+                                          </SelectTrigger>
+                                          <SelectContent className="bg-white shadow-md border-gray-200">
+                                            {(settings?.gates || ["Main Gate"]).map((gate) => (
+                                              <SelectItem key={gate} value={gate}>
+                                                {gate}
+                                              </SelectItem>
+                                            ))}
+                                            {/* Always allow "Pending Assignment" if that's the current value */}
+                                            {editedRequest.gate === "Pending Assignment" && !settings?.gates.includes("Pending Assignment") && (
+                                              <SelectItem value="Pending Assignment">Pending Assignment</SelectItem>
+                                            )}
+                                          </SelectContent>
+                                        </Select>
                                       </div>
                                       <div className="space-y-2">
                                         <Label htmlFor="edit-from">From Date</Label>
-                                        <Input id="edit-from" type="date" value={editedRequest.fromDate || ''} onChange={e => updateEditedField('fromDate', e.target.value)} />
+                                        <DualCalendarPicker
+                                          date={editedRequest.fromDate ? new Date(editedRequest.fromDate) : undefined}
+                                          mode={calendarMode}
+                                          onModeChange={setCalendarMode}
+                                          onChange={(d) => {
+                                            if (d) {
+                                              const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                                              updateEditedField('fromDate', isoStr)
+                                            } else {
+                                              updateEditedField('fromDate', "")
+                                            }
+                                          }}
+                                        />
                                       </div>
                                       <div className="space-y-2">
                                         <Label htmlFor="edit-to">To Date</Label>
-                                        <Input id="edit-to" type="date" value={editedRequest.toDate || ''} onChange={e => updateEditedField('toDate', e.target.value)} />
+                                        <DualCalendarPicker
+                                          date={editedRequest.toDate ? new Date(editedRequest.toDate) : undefined}
+                                          mode={calendarMode}
+                                          onModeChange={setCalendarMode}
+                                          onChange={(d) => {
+                                            if (d) {
+                                              const isoStr = new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split("T")[0]
+                                              updateEditedField('toDate', isoStr)
+                                            } else {
+                                              updateEditedField('toDate', "")
+                                            }
+                                          }}
+                                        />
                                       </div>
                                       <div className="space-y-2 md:col-span-2 lg:col-span-3">
                                         <Label htmlFor="edit-purpose">Purpose</Label>

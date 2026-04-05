@@ -13,6 +13,9 @@ export function mapRowToUser(row: any): User {
     role: row.role,
     assignedGates: row.assignedGates,
     active: row.active ?? true,
+    tenantId: row.tenantId,
+    tenantSlug: row.tenantSlug,
+    language: row.language,
     createdAt: new Date(row.createdAt).toISOString(),
   };
 }
