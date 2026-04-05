@@ -17,12 +17,13 @@ import {
   Download,
   FileSpreadsheet,
 } from "lucide-react";
-import { getSettings, saveRequest, checkBlacklist } from "@/lib/actions";
-import { useRouter, useParams } from "next/navigation";
+import { getSettings, saveRequest, checkBlacklist, getRequestById } from "@/lib/actions";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useToast } from "@/components/ui/use-toast";
 import ProtectedRoute from "@/components/protected-route";
 import Image from "next/image";
+import { Suspense } from "react";
 import { DualCalendarPicker } from "@/components/ui/dual-calendar-picker";
 import {
   Table,
@@ -47,6 +48,8 @@ const focusStyles =
 
 function RequestSubmissionPageContent() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const duplicateFromId = searchParams?.get("duplicateFrom");
   const slug = params?.slug as string;
 
   const router = useRouter();
@@ -103,7 +106,50 @@ function RequestSubmissionPageContent() {
       }
     };
     loadSettings();
-  }, [user]);
+  }, [user, slug]);
+
+  // Handle Duplication
+  useEffect(() => {
+    if (!duplicateFromId) return;
+    
+    const loadDuplicateData = async () => {
+      try {
+        const original = await getRequestById(duplicateFromId);
+        if (original) {
+          setFormData(prev => ({
+            ...prev,
+            destination: original.destination,
+            gate: original.gate,
+            purpose: original.purpose,
+            fromDate: "", // Clear dates as requested
+            toDate: "",
+          }));
+          
+          // Map guests, removing IDs to ensure they are created as new records
+          const duplicatedGuests = original.guests.map(g => ({
+            name: g.name,
+            organization: g.organization,
+            email: g.email,
+            phone: g.phone,
+            laptop: g.laptop,
+            mobile: g.mobile,
+            flash: g.flash,
+            otherDevice: g.otherDevice,
+            otherDeviceDescription: g.otherDeviceDescription,
+            idPhotoUrl: g.idPhotoUrl,
+            preferredLanguage: g.preferredLanguage,
+          }));
+          setGuests(duplicatedGuests);
+          setBlacklistStatus(new Array(duplicatedGuests.length).fill("clear")); 
+          
+          toast({ title: "Request Duplicated", description: "Original details pre-filled. Please select new dates." });
+        }
+      } catch (err) {
+        console.error("Duplication failed:", err);
+      }
+    };
+    loadDuplicateData();
+  }, [duplicateFromId, toast]);
 
   const addGuest = () => {
     setGuests([
@@ -651,7 +697,9 @@ function RequestSubmissionPageContent() {
 export default function RequestSubmissionPage() {
   return (
     <ProtectedRoute allowedRoles={["admin", "requester"]}>
-      <RequestSubmissionPageContent />
+      <Suspense fallback={<div className="flex h-screen items-center justify-center">Loading...</div>}>
+        <RequestSubmissionPageContent />
+      </Suspense>
     </ProtectedRoute>
   );
 }

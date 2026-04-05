@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Users, Calendar, AlertTriangle, CheckCircle2, XCircle } from "lucide-react"
+import { Eye, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Users, Calendar, AlertTriangle, CheckCircle2, XCircle, Copy } from "lucide-react"
 import type { Request } from "@/lib/types"
 import { getRequests } from "@/lib/actions"
 import { updateRequestSchedule, withdrawRequest, verifyHostRequest, denyHostRequest } from "@/lib/request-actions"
@@ -380,6 +380,15 @@ function RequesterContent() {
                           ) : (
                             <><ChevronDown className="size-3.5 mr-1" /> Guests</>
                           )}
+                        </Button>
+                        
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-7 text-xs justify-start px-2 text-gray-500 hover:text-cyan-600 w-full" 
+                          onClick={() => (window.location.href = `/t/${slug}?duplicateFrom=${request.id}`)}
+                        >
+                          <Copy className="size-3.5 mr-1" /> Duplicate
                         </Button>
 
                         {/* Edit Schedule Button */}
