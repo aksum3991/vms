@@ -20,6 +20,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { Plus, Trash2, Download, FileSpreadsheet, Image as ImageIcon, Users } from "lucide-react"
 import * as XLSX from "xlsx"
 import Image from "next/image"
@@ -164,6 +170,12 @@ export default function PublicRegistrationPage() {
       if (validGuests.length > 0) {
         setGuests((prev) => (prev.length === 1 && !prev[0].name ? validGuests : [...prev, ...validGuests]))
         toast({ title: "Import Successful", description: `Imported ${validGuests.length} guests.` })
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Import Failed",
+          description: "We couldn't find any valid guest data in the file. Please download the template, fill it, and try again.",
+        })
       }
     }
     reader.readAsBinaryString(file)
@@ -261,12 +273,21 @@ export default function PublicRegistrationPage() {
                     <Button type="button" onClick={handleExportTemplate} variant="outline" size="sm" className="flex-1 sm:flex-none">
                       <Download className="mr-2 h-4 w-4" /> Template
                     </Button>
-                    <div className="relative flex-1 sm:flex-none">
-                      <input type="file" accept=".xlsx, .xls" onChange={handleImportExcel} className="absolute inset-0 w-full opacity-0 cursor-pointer" />
-                      <Button type="button" variant="outline" size="sm" className="w-full">
-                        <FileSpreadsheet className="mr-2 h-4 w-4" /> Import
-                      </Button>
-                    </div>
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <div className="relative flex-1 sm:flex-none">
+                            <input type="file" accept=".xlsx, .xls" onChange={handleImportExcel} className="absolute inset-0 w-full opacity-0 cursor-pointer" />
+                            <Button type="button" variant="outline" size="sm" className="w-full">
+                              <FileSpreadsheet className="mr-2 h-4 w-4" /> Import
+                            </Button>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          <p>Download the template file, fill it, and upload it here.</p>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
                     <Button type="button" onClick={addGuest} variant="outline" size="sm" className="flex-1 sm:flex-none bg-cyan-50 text-cyan-700 border-cyan-200 hover:bg-cyan-100">
                       <Plus className="mr-2 h-4 w-4" /> Add Row
                     </Button>

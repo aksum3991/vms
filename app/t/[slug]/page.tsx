@@ -32,6 +32,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import * as XLSX from "xlsx";
 import type { Guest } from "@/lib/types";
 
@@ -225,6 +231,12 @@ function RequestSubmissionPageContent() {
         toast({
           title: "Import Successful",
           description: `Imported ${validGuests.length} guests.`,
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Import Failed",
+          description: "No valid guest data found. Please use the provided template.",
         });
       }
     };
@@ -426,22 +438,31 @@ function RequestSubmissionPageContent() {
                 >
                   <Download className="mr-2 size-4" /> Template
                 </Button>
-                <div className="relative flex-1 sm:flex-none">
-                  <input
-                    type="file"
-                    accept=".xlsx, .xls"
-                    onChange={handleImportExcel}
-                    className="absolute inset-0 w-full opacity-0 cursor-pointer"
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                  >
-                    <FileSpreadsheet className="mr-2 size-4" /> Import
-                  </Button>
-                </div>
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <div className="relative flex-1 sm:flex-none">
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls"
+                          onChange={handleImportExcel}
+                          className="absolute inset-0 w-full opacity-0 cursor-pointer"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="w-full"
+                        >
+                          <FileSpreadsheet className="mr-2 size-4" /> Import
+                        </Button>
+                      </div>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      <p>Download the template file, fill it, and upload it here.</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
                 <Button
                   type="button"
                   onClick={addGuest}
