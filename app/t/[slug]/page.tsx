@@ -344,7 +344,7 @@ function RequestSubmissionPageContent() {
         description: status === "draft" ? "Your progress has been saved." : "Your request has been sent for approval." 
       });
       
-      window.location.href = `/t/${slug}/requester`;
+      router.push(`/t/${slug}/requester`);
     } catch (error: any) {
       toast({ 
         variant: "destructive", 

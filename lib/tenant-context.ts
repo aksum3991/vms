@@ -48,6 +48,8 @@ async function resolveSession(): Promise<ServerSession | null> {
         role:       u.role       ?? "requester",
         tenantId:   u.tenantId   ?? null,
         tenantSlug: u.tenantSlug ?? null,
+        language:   u.language   ?? "en",
+        phone:      u.phone      ?? null,
       }
     }
   } catch {

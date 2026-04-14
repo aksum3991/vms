@@ -95,8 +95,8 @@ export async function updateRequestSchedule(
           entity: "Request",
           entityId: requestId,
           details: {
-            oldFromDate: request.fromDate.toISOString(),
-            oldToDate: request.toDate.toISOString(),
+            oldFromDate: request.fromDate?.toISOString() ?? null,
+            oldToDate: request.toDate?.toISOString() ?? null,
             newFromDate: from.toISOString(),
             newToDate: to.toISOString()
           },
@@ -159,6 +159,9 @@ export async function withdrawRequest(
 
       // Step 6: Validate 30-minute rule
       const now = new Date();
+      if (!request.fromDate) {
+        return { success: false, error: "Cannot withdraw: request has no scheduled start date." };
+      }
       const scheduledStart = new Date(request.fromDate);
       const minutesUntilStart = (scheduledStart.getTime() - now.getTime()) / (1000 * 60);
 

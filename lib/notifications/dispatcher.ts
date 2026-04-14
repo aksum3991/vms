@@ -244,7 +244,7 @@ async function queueDispatches(
       subject: e.subject ?? null,
       body: e.body,
       html: e.html ?? null,
-      attachments: e.attachments ?? null,
+      attachments: e.attachments ?? undefined,
       status: "queued" as const,
       tenantId,
     })),
